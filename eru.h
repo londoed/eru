@@ -108,6 +108,6 @@ void eru_free_row(Row);
 void eru_del_row(int)
 void eru_insert_newline(void);
 
-char *eru_prompt(char *);
+char *eru_prompt(char *, (void)(char *, int));
 void eru_search(void);
 void eru_init(void);

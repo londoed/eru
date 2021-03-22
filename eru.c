@@ -106,7 +106,7 @@ void
 eru_save(void)
 {
 	if (eru.filename == NULL) {
-		eru.filename = eru_prompt("Save file as: %s");
+		eru.filename = eru_prompt("Save file as: %s", NULL);
 
 		if (eru.filename == NULL) {
 			eru_set_status_msg("[!] ATTENTION: Save aborted...");
@@ -203,7 +203,18 @@ eru_draw_rows(struct AppendBuffer *ab)
 			if (len > eru.screen_cols)
 				len = eru.screen_cols;
 
-			abuf_append(ab, &eru.row[file_row].render[eru.col_offset], len);
+			char *c = &eru.row[file_row].render[eru.col_offset];
+			int j;
+
+			for (j = 0; j < len; j++) {
+				if (isdigit(c[j])) {
+					abuf_append(ab, "\x1b[31m", 5);
+					abuf_append(ab, &c[j], 1);
+					abuf_append(ab, "\x1b[39m", 5);
+				} else {
+					abuf_append(ab, &c[j], 1);
+				}
+			}
 		}
 
 		abuf_append(ab, "\x1b[K", 3);
@@ -631,6 +642,10 @@ eru_process_keypress(void)
 		eru_save();
 		break;
 
+	case CTRL_KEY('f'):
+		eru_search();
+		break;
+
 	default:
 		eru_insert_char(c);
 		break;
@@ -783,7 +798,7 @@ eru_insert_newline(void)
 }
 
 char *
-eru_prompt(char *prompt)
+eru_prompt(char *prompt, void (*func)(char *, int))
 {
 	size_t buf_size = 128;
 	char *buf = malloc(buf_size);
@@ -801,12 +816,19 @@ eru_prompt(char *prompt)
 				buf[--buf_len] = '\0';
 		} else if  (c == '\x1b') {
 			eru_set_status_msg("");
+
+			if (func)
+				func(buf, c);
+
 			free(buf);
 
 			return NULL;
 		} else if (c == '\r') {
 			if (buf_len != 0) {
 				eru_set_status_msg("");
+
+				if (func)
+					func(buf, c);
 
 				return buf;
 			}
@@ -819,32 +841,76 @@ eru_prompt(char *prompt)
 			buf[buf_len++] = c;
 			buf[buf_len] = '\0';
 		}
+
+		if (func)
+			func(buf, c);
 	}
 }
 
 void
 eru_search(void)
 {
-	char *query = eru_prompt("[!] SEARCH: %s (ESC to cancel)");
+	int saved_cur_x = eru.cur_x;
+	int saved_cur_y = eru.cur_y;
+	int saved_col_offset = eru.col_offset;
+	int saved_row_offset = eru.row_offset;
+	char *query = eru_prompt("[!] SEARCH: %s (Use Arrows/Enter, ESC to quit)", eru_find_cb);
+	
+	if (query)
+		free(query);
+	} else {
+		eru.cur_x = saved_cur_x;
+		eru.cur_y = saved_cur_y;
+		eru.col_offset = saved_col_offset;
+		eru.row_offset = saved_row_offset;
+	}
+}
 
-	if (query == NULL)
+void
+eru_search_cb(char *query, int key)
+{
+	static int last_match = -1;
+	static int direction = 1;
+
+	if (key == '\r' || key == '\x1b') {
+		last_match = -1;
+		direction = 1;
+
 		return;
+	} else if (key == RIGHT || key == DOWN) {
+		direction = 1;
+	} else if (key == LEFT || key == UP) {
+		direction = -1;
+	} else {
+		last_match = -1;
+		direction = 1;
+	}
 
+	if (last_match == -1)
+		direction = 1;
+
+	int curr = last_match;
 	int i;
 
 	for (i = 0; i < eru.num_rows; i++) {
-		Row *row = &eru.row[i];
+		curr *= direction;
+
+		if (curr == -1)
+			curr = e.num_rows - 1;
+		else if (curr == e.num_rows)
+			curr = 0;
+
+		Row *row = &eru.row[curr];
 		char *match = strstr(row->render, query);
 
 		if (match) {
-			eru.cur_y = i;
-			eru.cur_x = match - row->render;
+			last_match = curr;
+			eru.cur_y = curr;
+			eru.cur_x = eru_row_renx_to_curx(row, match - row->render);
 			eru.row_offset = eru.num_rows;
 			break;
 		}
 	}
-
-	free(query);
 }
 
 void
@@ -877,7 +943,7 @@ main(int argc, char *argv[])
 	if (argc >= 2)
 		eru_open(argv[1]);
 
-	eru_set_status_message("[ERU] Quit: Ctrl+Q | Save: Ctrl+S");
+	eru_set_status_message("[ERU] Quit: Ctrl+Q | Save: Ctrl+S | Find: Ctrl+F");
 
 	for (;;) {
 		eru_clear_screen();
