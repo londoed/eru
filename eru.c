@@ -17,6 +17,7 @@
 #include <sys/ioctl.h>
 #include <sys/types.h>
 #include <string.h>
+#include <time.h>
 #include <termios.h>
 #include <errno.h>
 
@@ -75,6 +76,9 @@ enable_raw_mode(void)
 void
 eru_open(char *filename)
 {
+	free(eru.filename);
+	eru.filename = strdup(filename);
+
 	FILE *fp = fopen(filename, "r");
 
 	if (!fp)
@@ -187,7 +191,7 @@ eru_clear_screen(void)
 	abuf_append(&ab, buf, strlen(buf));
 	abuf_append(&ab, "\x1b[?25h", 6);
 	
-	write(STDOUT_FILENO, ab.b, ab.len);
+	write(STDOUT_FILENO, ab.buf, ab.len);
 	abuf_free(&ab);
 }
 
@@ -342,11 +346,19 @@ void
 eru_draw_status_bar(struct AppendBuffer *ab)
 {
 	abuf_append(ab, "\x1b[7m", 4);
-	int len = 0;
+	char status[80], rstatus[80];
+	int len = snprintf(status, sizeof(status), "%.20s -- %d lines",
+		eru.filename ? eru.filename : "[NO NAME]", eru.num_rows);
+	int rlen = snprintf(rstatus, sizeof(rstatus), "%d/%d", eru.cur_y + 1, eru.num_rows);
 
 	while (len < eru.screen_cols) {
-		abuf_append(ab, " ", 1);
-		len++;
+		if (eru.screen_cols - len == rlen) {
+			abuf_append(ab, " ", 1);
+			break;
+		} else {
+			abuf_append(ab, " ", 1);
+			len++;
+		}
 	}
 
 	abuf_append(ab, "\x1b[m", 3);
@@ -521,6 +533,9 @@ eru_init(void)
 	eru.row_offset = 0;
 	eru.col_offset = 0;
 	eru.num_rows = 0;
+	eru.filename = NULL;
+	eru.status_msg[0] = '\0';
+	eru.status_msg_time = 0;
 	eru.row = NULL;
 
 	if (get_window_size(&eru.screen_rows, &eru.screen_cols) == -1)

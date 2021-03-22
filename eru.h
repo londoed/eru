@@ -17,6 +17,7 @@
 #include <sys/ioctl.h>
 #include <sys/types.h>
 #include <string.h>
+#include <time.h>
 #include <termios.h>
 #include <errno.h>
 
@@ -77,6 +78,9 @@ struct Editor {
 	int num_rows;
 	int row_offset;
 	int col_offset;
+	char filename;
+	char status_msg[80];
+	time_t status_msg_time;
 	Row *row;
 };
 
