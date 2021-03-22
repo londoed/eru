@@ -6,6 +6,10 @@
  * Refer to the file LICENSE for additional details.
 **/
 
+#define _DEFAULT_SOURCE
+#define _BSD_SOURCE
+#define _GNU_SOURCE
+
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -71,15 +75,25 @@ enable_raw_mode(void)
 void
 eru_open(void)
 {
-	char *line = "Hardcoded\r\n";
-	ssize_t line_len = 11;
+	FILE *fp = fopen(filename, "r");
 
-	eru.row.size = line_len;
-	eru.row.chars = malloc(line_len + 1);
+	if (!fp)
+		eru_error("[!] ERROR: eru: ");
+	char *line = NULL;
+	size_t line_cap = 0;
+	ssize_t line_len;
 
-	memcpy(eru.row.chars, line, line_len);
-	eru.row.chars[line_len] = '\0';
-	eru.num_rows = 1;
+	line_len = getline(&line, &line_cap, fp);
+
+	if (line_len != -1) {
+		while (line_len > 0 && (line[line_len - 1] == '\n' || line[line_len - 1] == '\r'))
+			line_len--;
+		
+		eru_append_row(line, line_len);
+	}
+
+	free(line);
+	fclose(fp);
 }
 
 void
@@ -89,7 +103,7 @@ eru_draw_rows(struct AppendBuffer *ab)
 
 	for (i = 0; i < eru.screen_rows; i++) {
 		if (i >= eru.num_rows) {
-			if (i == eru.screen_rows / 3) {
+			if (eru.num_rows == 0 && i == eru.screen_rows / 3) {
 				char info[80];
 				int info_len = snprintf(info, sizeof(info), "eru -- version %s", ERU_VERSION);
 
@@ -229,6 +243,17 @@ eru_read_key(void)
 	} else {
 		return c;
 	}
+}
+
+void
+eru_append_row(char *s, size_t len)
+{
+	eru.row.size = len;
+	eru.row.chars = malloc(len + 1);
+
+	memcpy(eru.row.chars, s, len);
+	eru.row.chars[len] = '\0';
+	eru.num_rows = 1;
 }
 
 void
@@ -373,17 +398,20 @@ eru_init(void)
 	eru.cur_x = 0;
 	eru.cur_y = 0;
 	eru.num_rows = 0;
+	eru.row = NULL;
 
 	if (get_window_size(&eru.screen_rows, &eru.screen_cols) == -1)
 		eru_error("[!] ERROR: eru: ");
 }
 
 int
-main()
+main(int argc, char *argv[])
 {
 	enable_raw_mode();
 	eru_init();
-	eru_open();
+
+	if (argc >= 2)
+		eru_open(argv[1]);
 
 	for (;;) {
 		eru_clear_screen();

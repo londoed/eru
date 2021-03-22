@@ -6,6 +6,10 @@
  * Refer to the file LICENSE for additional details.
 **/
 
+#define _DEFAULT_SOURCE
+#define _BSD_SOURCE
+#define _GNU_SOURCE
+
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -61,7 +65,7 @@ struct Editor {
 	int cur_x, cur_y;
 	int screen_rows, screen_cols;
 	int num_rows;
-	Row row;
+	Row *row;
 };
 
 struct AppendBuffer {
