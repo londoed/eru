@@ -59,13 +59,43 @@ enable_raw_mode(void)
 		eru_error("[!] ERROR: eru: ");
 }
 
+/*void eru_info(void)
+{
+	int i;
+
+	for (i = 0; i < eru.screen_rows,)
+}
+*/
+
 void
 eru_draw_rows(struct AppendBuffer *ab)
 {
 	int i;
 
 	for (i = 0; i < eru.screen_rows; i++) {
-		abuf_append(ab, "~", 1);
+		if (i == eru.screen_rows / 3) {
+			char info[80];
+			int info_len = snprintf(info, sizeof(info), "eru -- version %s", ERU_VERSION);
+
+			if (info_len > eru.screen_cols)
+				info_len = eru.screen_cols;
+
+			int padding = (eru.screen_cols - info_len) / 2;
+
+			if (padding) {
+				abuf_append(ab, "~", 1);
+				padding--;
+			}
+
+			while (padding--)
+				abuf_append(ab, " ", 1);
+
+			abuf_append(ab, info, info_len);
+		} else {
+			abuf_append(ab, "~", 1);
+		}
+
+		abuf_append(ab, "\x1b[K", 3);
 
 		if (i < eru.screen_rows - 1)
 			abuf_append(ab, "\r\n", 2);
@@ -76,13 +106,15 @@ void
 eru_clear_screen(void)
 {
 	struct AppendBuffer ab = ABUF_INIT;
-	abuf_append(&ab, "\x1b[2J", 4);
+
+	abuf_append(&ab, "\x1b[?25l", 6);
 	abuf_append(&ab, "\x1b[H", 3);
 
 	eru_draw_rows(&ab);;
 	abuf_append(&ab, "\x1b[H", 3);
+	abuf_append(&ab, "\x1b[?25h", 6);
+	
 	write(STDOUT_FILENO, ab.b, ab.len);
-
 	abuf_free(&ab);
 }
 
@@ -183,6 +215,9 @@ eru_process_keypress(void)
 void
 eru_init(void)
 {
+	eru.cur_x = 0;
+	eru.cur_y = 0;
+
 	if (get_window_size(&eru.screen_rows, &eru.screen_cols) == -1)
 		eru_error("[!] ERROR: eru: ");
 }

@@ -15,6 +15,8 @@
 #include <termios.h>
 #include <errno.h>
 
+#define ERU_VERSION "0.0.2"
+
 #define CTRL_KEY(k) ((k) & 0x1F)
 #define ABUF_INIT {NULL, 0}
 
@@ -36,6 +38,7 @@ void eru_init(void);
 
 struct Editor {
 	struct termios orig;
+	int cur_x, cur_y;
 	int screen_rows, screen_cols;
 };
 
