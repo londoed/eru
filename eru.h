@@ -28,6 +28,9 @@
 void eru_error(const char *);
 void disable_raw_mode(void);
 void enable_raw_mode(void);
+
+void eru_open(void);
+void eru_scroll(void);
 void eru_draw_rows(AppendBuffer *);
 void eru_clear_screen(void);
 void eru_read_key(void);
@@ -65,6 +68,8 @@ struct Editor {
 	int cur_x, cur_y;
 	int screen_rows, screen_cols;
 	int num_rows;
+	int row_offset;
+	int col_offset;
 	Row *row;
 };
 

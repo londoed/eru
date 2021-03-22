@@ -79,13 +79,12 @@ eru_open(void)
 
 	if (!fp)
 		eru_error("[!] ERROR: eru: ");
+
 	char *line = NULL;
 	size_t line_cap = 0;
 	ssize_t line_len;
 
-	line_len = getline(&line, &line_cap, fp);
-
-	if (line_len != -1) {
+	while ((line_len = getline(&line, &line_cap, fp)) != -1) {
 		while (line_len > 0 && (line[line_len - 1] == '\n' || line[line_len - 1] == '\r'))
 			line_len--;
 		
@@ -94,6 +93,23 @@ eru_open(void)
 
 	free(line);
 	fclose(fp);
+	}
+}
+
+void
+eru_scroll(void)
+{
+	if (eru.cur_y < eru.row_offset)
+		eru.row_offset = eru.cur_y;
+
+	if (eru.cur_y >= eru.row_offset + eru.screen_rows)
+		eru.row_offset = eru.cur_y - eru.screen_rows + 1;
+
+	if (eru.cur_x < eru.col_offset)
+		eru.col_offset = eru.cur_x;
+
+	if (eru.cur_x >= eru.col_offset + eru.screen_cols)
+		eru.col_offset = eru.cur_x - eru.screen_cols + 1;
 }
 
 void
@@ -102,7 +118,8 @@ eru_draw_rows(struct AppendBuffer *ab)
 	int i;
 
 	for (i = 0; i < eru.screen_rows; i++) {
-		if (i >= eru.num_rows) {
+		int file_row = i + eru.row_offset;
+		if (file_row >= eru.num_rows) {
 			if (eru.num_rows == 0 && i == eru.screen_rows / 3) {
 				char info[80];
 				int info_len = snprintf(info, sizeof(info), "eru -- version %s", ERU_VERSION);
@@ -130,12 +147,15 @@ eru_draw_rows(struct AppendBuffer *ab)
 			if (i < eru.screen_rows - 1)
 				abuf_append(ab, "\r\n", 2);
 		} else {
-			int len = eru.row.size;
+			int len = eru.row[file_row].size - eru.col_offset;
+
+			if (len < 0)
+				len = 0;
 
 			if (len > eru.screen_cols)
 				len = eru.screen_cols;
 
-			abuf_append(ab, eru.row.chars, len);
+			abuf_append(ab, &eru.row[file_row].chars[eru.col_offset], len);
 		}
 	}
 }
@@ -145,12 +165,14 @@ eru_clear_screen(void)
 {
 	struct AppendBuffer ab = ABUF_INIT;
 
+	eru_scroll();
+
 	abuf_append(&ab, "\x1b[?25l", 6);
 	abuf_append(&ab, "\x1b[H", 3);
 
 	eru_draw_rows(&ab);;
 	char buf[32];
-	snprintf(buf, sizeof(buf), "\x1b[%d;%dH", eru.cur_y + 1, eru.cur_x + 1);
+	snprintf(buf, sizeof(buf), "\x1b[%d;%dH", (eru.cur_y - eru.row_offset) + 1, eru.cur_x + 1);
 
 	abuf_append(&ab, buf, strlen(buf));
 	abuf_append(&ab, "\x1b[?25h", 6);
@@ -248,12 +270,15 @@ eru_read_key(void)
 void
 eru_append_row(char *s, size_t len)
 {
-	eru.row.size = len;
-	eru.row.chars = malloc(len + 1);
+	eru.row = realloc(eru.row, sizeof(Row) * (eru.num_rows + 1));
+	int cur_row = eru.num_rows;
 
-	memcpy(eru.row.chars, s, len);
-	eru.row.chars[len] = '\0';
-	eru.num_rows = 1;
+	eru.row[cur_row].size = len;
+	eru.row[cur_row].chars = malloc(len + 1);
+
+	memcpy(eru.row[cur_row].chars, s, len);
+	eru.row[cur_row].chars[len] = '\0';
+	eru.num_rows++;
 }
 
 void
@@ -385,7 +410,7 @@ eru_move_cursor(int key)
 		break;
 
 	case DOWN:
-		if (eru.cur_y != eru.screen_rows - 1)
+		if (eru.cur_y < eru.num_rows)
 			eru.cur_y++;
 		
 		break;
@@ -397,6 +422,8 @@ eru_init(void)
 {
 	eru.cur_x = 0;
 	eru.cur_y = 0;
+	eru.row_offset = 0;
+	eru.col_offset = 0;
 	eru.num_rows = 0;
 	eru.row = NULL;
 
