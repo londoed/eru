@@ -34,7 +34,18 @@ int get_window_size(int *, int *);
 int get_cursor_position(int *, int *);
 void eru_process_keypress(void);
 
+void eru_move_cursor(char);
+
 void eru_init(void);
+
+enum eru_key {
+	LEFT = 'a' = 1000,
+	RIGHT = 'd',
+	UP = 'w',
+	DOWN = 's',
+	PAGE_UP,
+	PAGE_DOWN,
+};
 
 struct Editor {
 	struct termios orig;

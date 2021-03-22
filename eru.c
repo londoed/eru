@@ -111,14 +111,17 @@ eru_clear_screen(void)
 	abuf_append(&ab, "\x1b[H", 3);
 
 	eru_draw_rows(&ab);;
-	abuf_append(&ab, "\x1b[H", 3);
+	char buf[32];
+	snprintf(buf, sizeof(buf), "\x1b[%d;%dH", eru.cur_y + 1, eru.cur_x + 1);
+
+	abuf_append(&ab, buf, strlen(buf));
 	abuf_append(&ab, "\x1b[?25h", 6);
 	
 	write(STDOUT_FILENO, ab.b, ab.len);
 	abuf_free(&ab);
 }
 
-char
+int
 eru_read_key(void)
 {
 	int nread;
@@ -128,8 +131,51 @@ eru_read_key(void)
 		if (nread == -1 && errno != EAGAIN)
 			eru_error("[!] ERROR: eru: ");
 	}
+	
+	if (c == '\x1b') {
+		char seq[3];
 
-	return c;
+		if (read(STDIN_FILENO, &seq[0], 1) != 1)
+			return '\x1b';
+
+		if (read(STDIN_FILENO, &seq[1], 1) != 1)
+			return '\x1b';
+
+		if (seq[0] == '[') {
+			if (seq[1] >= '0' && seq[1] <= '9') {
+				if (read(STDIN_FILENO, &seq[2], 1) != 1)
+					return '\x1b';
+
+				if (seq[2] == '~') {
+					switch (seq[1]) {
+					case '5':
+						return PAGE_UP;
+
+					case '6':
+						return PAGE_DOWN;
+					}
+				}
+			} else {
+				switch (seq[1]) {
+				case 'A':
+					return UP;
+
+				case 'B':
+					return DOWN;
+
+				case 'C':
+					return RIGHT;
+
+				case 'D':
+					return LEFT;
+				}
+			}
+		}
+
+		return '\x1b';
+	} else {
+		return c;
+	}
 }
 
 void
@@ -202,12 +248,60 @@ get_cursor_position(int *rows, int *cols)
 void
 eru_process_keypress(void)
 {
-	char c = eru_read_key();
+	int c = eru_read_key();
 
 	switch (c) {
 	case CTRL_KEY('q'):
 		eru_clear_screen();
 		exit(0);
+		break;
+
+	case UP:
+	case DOWN:
+	case LEFT:
+	case RIGHT:
+		eru_move_cursor(c);
+		break;
+
+	case PAGE_UP:
+	case PAGE_DOWN:
+		{
+			int times = eru.screen_rows;
+
+			while (times--)
+				eru_move_cursor(c == PAGE_UP ? UP : DOWN);
+
+			break;
+		}
+	}
+}
+
+void
+eru_move_cursor(int key)
+{
+	switch (key) {
+	case LEFT:
+		if (eru.cur_x != 0)
+			eru.cur_x--;
+		
+		break;
+
+	case RIGHT:
+		if (eru.cur_x != eru.screen_cols - 1)
+			eru.cur_x++;
+		
+		break;
+
+	case UP:
+		if (eru.cur_y != 0)
+			eru.cur_y--;
+		
+		break;
+
+	case DOWN:
+		if (eru.cur_y != eru.screen_rows - 1)
+			eru.cur_y++;
+		
 		break;
 	}
 }
