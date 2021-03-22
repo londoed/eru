@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
+#include <sys/types.h>
 #include <string.h>
 #include <termios.h>
 #include <errno.h>
@@ -47,12 +48,20 @@ enum eru_key {
 	PAGE_DOWN,
 	HOME,
 	END,
+	DELETE,
 };
+
+typedef struct Row {
+	int size;
+	char *chars;
+} Row;
 
 struct Editor {
 	struct termios orig;
 	int cur_x, cur_y;
 	int screen_rows, screen_cols;
+	int num_rows;
+	Row row;
 };
 
 struct AppendBuffer {

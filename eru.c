@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
+#include <sys/types.h>
 #include <string.h>
 #include <termios.h>
 #include <errno.h>
@@ -68,37 +69,60 @@ enable_raw_mode(void)
 */
 
 void
+eru_open(void)
+{
+	char *line = "Hardcoded\r\n";
+	ssize_t line_len = 11;
+
+	eru.row.size = line_len;
+	eru.row.chars = malloc(line_len + 1);
+
+	memcpy(eru.row.chars, line, line_len);
+	eru.row.chars[line_len] = '\0';
+	eru.num_rows = 1;
+}
+
+void
 eru_draw_rows(struct AppendBuffer *ab)
 {
 	int i;
 
 	for (i = 0; i < eru.screen_rows; i++) {
-		if (i == eru.screen_rows / 3) {
-			char info[80];
-			int info_len = snprintf(info, sizeof(info), "eru -- version %s", ERU_VERSION);
+		if (i >= eru.num_rows) {
+			if (i == eru.screen_rows / 3) {
+				char info[80];
+				int info_len = snprintf(info, sizeof(info), "eru -- version %s", ERU_VERSION);
 
-			if (info_len > eru.screen_cols)
-				info_len = eru.screen_cols;
+				if (info_len > eru.screen_cols)
+					info_len = eru.screen_cols;
 
-			int padding = (eru.screen_cols - info_len) / 2;
+				int padding = (eru.screen_cols - info_len) / 2;
 
-			if (padding) {
+				if (padding) {
+					abuf_append(ab, "~", 1);
+					padding--;
+				}
+
+				while (padding--)
+					abuf_append(ab, " ", 1);
+
+				abuf_append(ab, info, info_len);
+			} else {
 				abuf_append(ab, "~", 1);
-				padding--;
 			}
 
-			while (padding--)
-				abuf_append(ab, " ", 1);
+			abuf_append(ab, "\x1b[K", 3);
 
-			abuf_append(ab, info, info_len);
+			if (i < eru.screen_rows - 1)
+				abuf_append(ab, "\r\n", 2);
 		} else {
-			abuf_append(ab, "~", 1);
+			int len = eru.row.size;
+
+			if (len > eru.screen_cols)
+				len = eru.screen_cols;
+
+			abuf_append(ab, eru.row.chars, len);
 		}
-
-		abuf_append(ab, "\x1b[K", 3);
-
-		if (i < eru.screen_rows - 1)
-			abuf_append(ab, "\r\n", 2);
 	}
 }
 
@@ -148,11 +172,26 @@ eru_read_key(void)
 
 				if (seq[2] == '~') {
 					switch (seq[1]) {
+					case '1':
+						return HOME;
+
+					case '3':
+						return DELETE;
+
+					case '4':
+						return END;
+
 					case '5':
 						return PAGE_UP;
 
 					case '6':
 						return PAGE_DOWN;
+
+					case '7':
+						return HOME;
+
+					case '8':
+						return END;
 					}
 				}
 			} else {
@@ -168,7 +207,21 @@ eru_read_key(void)
 
 				case 'D':
 					return LEFT;
+
+				case 'H':
+					return HOME;
+
+				case 'F':
+					return END;
 				}
+			}
+		} else if (seq[0] == '0') {
+			switch (seq[1]) {
+			case 'H':
+				return HOME;
+
+			case 'F':
+				return END;
 			}
 		}
 
@@ -273,6 +326,14 @@ eru_process_keypress(void)
 
 			break;
 		}
+
+	case HOME:
+		eru.cur_x = 0;
+		break;
+
+	case END:
+		eru.cur_x = eru.screen_cols - 1;
+		break;
 	}
 }
 
@@ -311,6 +372,7 @@ eru_init(void)
 {
 	eru.cur_x = 0;
 	eru.cur_y = 0;
+	eru.num_rows = 0;
 
 	if (get_window_size(&eru.screen_rows, &eru.screen_cols) == -1)
 		eru_error("[!] ERROR: eru: ");
@@ -321,6 +383,7 @@ main()
 {
 	enable_raw_mode();
 	eru_init();
+	eru_open();
 
 	for (;;) {
 		eru_clear_screen();
