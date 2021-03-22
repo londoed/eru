@@ -11,17 +11,22 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
+#include <string.h>
 #include <termios.h>
 #include <errno.h>
 
 #define CTRL_KEY(k) ((k) & 0x1F)
+#define ABUF_INIT {NULL, 0}
 
 void eru_error(const char *);
 void disable_raw_mode(void);
 void enable_raw_mode(void);
-void eru_draw_rows(void);
+void eru_draw_rows(AppendBuffer *);
 void eru_clear_screen(void);
 void eru_read_key(void);
+
+void abuf_append(struct AppendBuffer *, const char *, int);
+void abuf_free(struct AppendBuffer *);
 
 int get_window_size(int *, int *);
 int get_cursor_position(int *, int *);
@@ -32,5 +37,10 @@ void eru_init(void);
 struct Editor {
 	struct termios orig;
 	int screen_rows, screen_cols;
+};
+
+struct AppendBuffer {
+	char *buf;
+	int len;
 };
 

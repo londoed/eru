@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
+#include <string.h>
 #include <termios.h>
 #include <errno.h>
 
@@ -59,26 +60,30 @@ enable_raw_mode(void)
 }
 
 void
-eru_draw_rows(void)
+eru_draw_rows(struct AppendBuffer *ab)
 {
 	int i;
 
 	for (i = 0; i < eru.screen_rows; i++) {
-		write(STDOUT_FILENO, "~", 1);
+		abuf_append(ab, "~", 1);
 
 		if (i < eru.screen_rows - 1)
-			write(STDOUT_FILENO, "\r\n", 2);
+			abuf_append(ab, "\r\n", 2);
 	}
 }
 
 void
 eru_clear_screen(void)
 {
-	write(STDOUT_FILENO, "\x1b[2J", 4);
-	write(STDOUT_FILENO, "\x1b[H", 3);
+	struct AppendBuffer ab = ABUF_INIT;
+	abuf_append(&ab, "\x1b[2J", 4);
+	abuf_append(&ab, "\x1b[H", 3);
 
-	eru_draw_rows();
-	write(STDOUT_FILENO, "\x1b[H", 3);
+	eru_draw_rows(&ab);;
+	abuf_append(&ab, "\x1b[H", 3);
+	write(STDOUT_FILENO, ab.b, ab.len);
+
+	abuf_free(&ab);
 }
 
 char
@@ -93,6 +98,25 @@ eru_read_key(void)
 	}
 
 	return c;
+}
+
+void
+abuf_append(struct AppendBuffer *ab, const char *s, int len)
+{
+	char *new_buf = realloc(ab->buf, ab->len + len);
+
+	if (new_buf == NULL)
+		return;
+
+	memcpy(&new_buf[ab->len], s, len);
+	ab->buf = new_buf;
+	ab->len += len;
+}
+
+void
+abuf_free(struct AppendBuffer *ab)
+{
+	free(ab->buf);
 }
 
 int
