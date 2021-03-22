@@ -172,7 +172,8 @@ eru_clear_screen(void)
 
 	eru_draw_rows(&ab);;
 	char buf[32];
-	snprintf(buf, sizeof(buf), "\x1b[%d;%dH", (eru.cur_y - eru.row_offset) + 1, eru.cur_x + 1);
+	snprintf(buf, sizeof(buf), "\x1b[%d;%dH", (eru.cur_y - eru.row_offset) + 1, 
+		(eru.cur_x - eru.col_offset) + 1);
 
 	abuf_append(&ab, buf, strlen(buf));
 	abuf_append(&ab, "\x1b[?25h", 6);
@@ -390,16 +391,25 @@ eru_process_keypress(void)
 void
 eru_move_cursor(int key)
 {
+	Row *row = (eru.cur_y >= eru.num_rows) ? NULL : &eru.row[eru.cur_y];
 	switch (key) {
 	case LEFT:
-		if (eru.cur_x != 0)
+		if (eru.cur_x != 0) {
 			eru.cur_x--;
+		} else if (eru.cur_y > 0) {
+			eru.cur_y--;
+			eru.cur_x = eru.row[eru.cur_y].size;
+		}
 		
 		break;
 
 	case RIGHT:
-		if (eru.cur_x != eru.screen_cols - 1)
+		if (row && eru.cur_x < row->size) {
 			eru.cur_x++;
+		} else if (row && eru.cur_x == row->size) {
+			eru.cur_y++;
+			eru.cur_x = 0;
+		}
 		
 		break;
 
@@ -415,6 +425,12 @@ eru_move_cursor(int key)
 		
 		break;
 	}
+
+	row = (eru.cur_y >= eru.num_rows) ? NULL : eru.row[eru.cur_y];
+	int row_len = row ? row->size : 0;
+
+	if (eru.cur_x > row_len)
+		eru.cur_x = row_len;
 }
 
 void
