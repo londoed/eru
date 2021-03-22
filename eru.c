@@ -94,28 +94,49 @@ eru_open(char *filename)
 		while (line_len > 0 && (line[line_len - 1] == '\n' || line[line_len - 1] == '\r'))
 			line_len--;
 		
-		eru_append_row(line, line_len);
+		eru_insert_row(eru.num_rows, line, line_len);
 	}
 
 	free(line);
 	fclose(fp);
+	eru.dirty = 0;
 }
 
 void
 eru_save(void)
 {
-	if (eru.filename == NULL)
-		return;
+	if (eru.filename == NULL) {
+		eru.filename = eru_prompt("Save file as: %s");
+
+		if (eru.filename == NULL) {
+			eru_set_status_msg("[!] ATTENTION: Save aborted...");
+
+			return;
+		}
+	}
 
 	int len;
 	char *buf = eru_rows_to_string(&len);
 	int fd = open(eru.filename, O_RDWR | O_CREAT, 0644);
 
-	ftruncate(fd, len);
-	write(fd, buf, len);
+	if (fd != -1) {
+		if (ftruncate(fd, len) != -1) {
+			if (write(fd, buf, len) == len) {
+				close(fd);
+				free(buf);
 
-	close(fd);
+				eru.dirty = 0;
+				eru_set_status_msg("[!] INFO: eru: %d bytes written to disk!", len);
+
+				return;
+			}
+		}
+
+		close(fd);
+	}
+
 	free(buf);
+	eru_set_status_msg("[!] ERROR: eru: Can't save, I/O error: %s", strerror(errno));
 }
 
 void
@@ -302,21 +323,25 @@ eru_read_key(void)
 }
 
 void
-eru_append_row(char *s, size_t len)
+eru_insert_row(int cur_pos, char *s, size_t len)
 {
+	if (cur_pos < 0 || cur_pos > eru.num_rows)
+		return;
+	
 	eru.row = realloc(eru.row, sizeof(Row) * (eru.num_rows + 1));
-	int cur_row = eru.num_rows;
+	memmove(&eru.row[cur_pos + 1], &eru.row[cur_pos], sizeof(Row) * (eru.num_rows - cur_pos));
 
-	eru.row[cur_row].size = len;
-	eru.row[cur_row].chars = malloc(len + 1);
+	eru.row[cur_pos].size = len;
+	eru.row[cur_pos].chars = malloc(len + 1);
 
-	memcpy(eru.row[cur_row].chars, s, len);
-	eru.row[cur_row].chars[len] = '\0';
-	eru.row[cur_row].rsize = 0;
-	eru.row[cur_row].render = NULL;
+	memcpy(eru.row[cur_pos].chars, s, len);
+	eru.row[cur_pos].chars[len] = '\0';
+	eru.row[cur_pos].rsize = 0;
+	eru.row[cur_pos].render = NULL;
 
-	eru_update_row(&eru.row[cur_row]);
+	eru_update_row(&eru.row[cur_pos]);
 	eru.num_rows++;
+	eru.dirty++;
 }
 
 void
@@ -362,6 +387,25 @@ eru_row_curx_to_renx(Row *row, int cx)
 	return rx;
 }
 
+int
+eru_row_renx_to_curx(Row *row, int rx)
+{
+	int cur_rx = 0;
+	int cx;
+
+	for (cx = 0; cx < row->size; cx++) {
+		if (row->chars[cx] == '\t')
+			cur_rx += (TAB_STOP - 1) - (cur_rx % TAB_STOP);
+
+		cur_rx++;
+
+		if (cur_rx > rx)
+			return cx;
+	}
+
+	return cx;
+}
+
 char *
 eru_rows_to_string(int *buf_len)
 {
@@ -386,12 +430,24 @@ eru_rows_to_string(int *buf_len)
 }
 
 void
+eru_row_append_string(Row *row, char *s, size_t len)
+{
+	row->chars = realloc(row->chars, row->size + len + 1);
+	memcpy(&row->chars[row->size], s, len);
+	row->size += len;
+	row->chars[row->size] = '\0';
+
+	eru_update_row(row);
+	eru.dirty++;
+}
+
+void
 eru_draw_status_bar(struct AppendBuffer *ab)
 {
 	abuf_append(ab, "\x1b[7m", 4);
 	char status[80], rstatus[80];
-	int len = snprintf(status, sizeof(status), "%.20s -- %d lines",
-		eru.filename ? eru.filename : "[NO NAME]", eru.num_rows);
+	int len = snprintf(status, sizeof(status), "%.20s -- %d lines %s",
+		eru.filename ? eru.filename : "[NO NAME]", eru.num_rows, eru.dirty ? "(modified)" : "");
 	int rlen = snprintf(rstatus, sizeof(rstatus), "%d/%d", eru.cur_y + 1, eru.num_rows);
 
 	while (len < eru.screen_cols) {
@@ -504,12 +560,21 @@ void
 eru_process_keypress(void)
 {
 	int c = eru_read_key();
+	static int qt = QUIT_TIMES;
 
 	switch (c) {
 	case '\r':
+		eru_insert_newline();
 		break;
 
 	case CTRL_KEY('q'):
+		if (eru.dirty && qt > 0) {
+			eru_set_status_msg("[!] WARNING: File has unsaved changes. Press Ctrl-Q %d more times to quit", qt);
+			qt--;
+
+			return;
+		}
+
 		eru_clear_screen();
 		exit(0);
 		break;
@@ -552,6 +617,10 @@ eru_process_keypress(void)
 	case BACKSPACE:
 	case CTRL_KEY('h'):
 	case DELETE:
+		if (c == DELETE)
+			eru_move_cursor(RIGHT);
+
+		eru_del_char();
 		break;
 
 	case CTRL_KEY('l'):
@@ -566,6 +635,8 @@ eru_process_keypress(void)
 		eru_insert_char(c);
 		break;
 	}
+
+	qt = QUIT_TIMES;
 }
 
 void
@@ -614,27 +685,166 @@ eru_move_cursor(int key)
 }
 
 void
-eru_row_insert_char(Row *row, int cur_row, int c)
+eru_row_insert_char(Row *row, int cur_pos, int c)
 {
-	if (cur_row < 0 || cur_row > row->size)
-		cur_row = row->size;
+	if (cur_pos < 0 || cur_pos > row->size)
+		cur_pos = row->size;
 
 	row->chars = realloc(row->chars, row->size + 2);
-	memmove(&row->chars[cur_row + 1], &row->chars[cur_row], row->size - cur_row + 1);
+	memmove(&row->chars[cur_pos + 1], &row->chars[cur_pos], row->size - cur_pos + 1);
 	row->size++;
-	row->chars[cur_row] = c;
+	row->chars[cur_pos] = c;
 
 	eru_update_row(row);
+	eru.dirty++;
+}
+
+void
+eru_row_del_char(Row *row, int cur_pos)
+{
+	if (cur_pos < 0 || cur_pos >= row->size)
+		return;
+
+	memmove(&row->chars[cur_pos], &row->chars[cur_pos + 1], row->size - cur_pos);
+	row->size--;
+
+	eru_update_row(row);
+	eru.dirty++;
+}
+
+void eru_del_char(void)
+{
+	if (eru.cur_y == eru.num_rows)
+		return;
+
+	if (eru.cur_x == 0 && eru.cur_y == 0)
+		return;
+
+	Row *row = &eru.row[eru.cur_y];
+
+	if (eru.cur_x > 0) {
+		eru_row_del_char(row, eru.cur_x - 1);
+		eru.cur_x--;
+	} else {
+		eru.cur_x = eru.row[eru.cur_y - 1].size;
+		eru_row_append_string(&eru.row[eru.cur_y - 1], row->chars, row->size);
+		eru_del_row(eru.cur_y);
+		eru.cur_y--;
+	}
 }
 
 void
 eru_insert_char(int c)
 {
 	if (eru.cur_y == eru.num_rows)
-		eru_append_row("", 0);
+		eru_insert_row(eru.num_rows, "", 0);
 
 	eru_row_insert_char(&eru.row[eru.cur_y], eru.cur_x, c);
 	eru.cur_x++;
+}
+
+void
+eru_free_row(Row *row)
+{
+	free(row->render);
+	free(row->chars);
+}
+
+void
+eru_del_row(int cur_pos)
+{
+	if (cur_pos < 0 || cur_pos >= eru.num_rows)
+		return;
+
+	eru_free_row(&eru.row[cur_pos]);
+	memmove(&eru.row[cur_pos], &eru.row[cur_pos + 1], sizeof(Row) * (eru.num_rows - cur_pos - 1));
+
+	eru.num_rows--;
+	eru.dirty++;
+}
+
+void
+eru_insert_newline(void)
+{
+	if (eru.cur_x == 0) {
+		eru_insert_row(eru.cur_y, "", 0);
+	} else {
+		Row *row = &eru.row[eru.cur_y];
+		eru_insert_row(eru.cur_y + 1, &row->chars[eru.cur_x], row->size - eru.cur_x);
+
+		row = &eru.row[eru.cur_y];
+		row->size = eru.cur_x;
+		row->chars[row->size] = '\0';
+		eru_update_row(row);
+	}
+
+	eru.cur_y++;
+	eru.cur_x = 0;
+}
+
+char *
+eru_prompt(char *prompt)
+{
+	size_t buf_size = 128;
+	char *buf = malloc(buf_size);
+	size_t buf_len = 0;
+	
+	buf[0] = '\0';
+
+	for (;;) {
+		eru_set_status_msg(prompt, buf);
+		eru_clear_screen();
+		int c = eru_read_key();
+
+		if (c == DELETE || c == CTRL_KEY('h') || c == BACKSPACE) {
+			if (buf_len != 0)
+				buf[--buf_len] = '\0';
+		} else if  (c == '\x1b') {
+			eru_set_status_msg("");
+			free(buf);
+
+			return NULL;
+		} else if (c == '\r') {
+			if (buf_len != 0) {
+				eru_set_status_msg("");
+
+				return buf;
+			}
+		} else if (!iscntrl(c) && c < 128) {
+			if (buf_len == buf_size - 1) {
+				buf_size *= 2;
+				buf = realloc(buf, buf_size);
+			}
+
+			buf[buf_len++] = c;
+			buf[buf_len] = '\0';
+		}
+	}
+}
+
+void
+eru_search(void)
+{
+	char *query = eru_prompt("[!] SEARCH: %s (ESC to cancel)");
+
+	if (query == NULL)
+		return;
+
+	int i;
+
+	for (i = 0; i < eru.num_rows; i++) {
+		Row *row = &eru.row[i];
+		char *match = strstr(row->render, query);
+
+		if (match) {
+			eru.cur_y = i;
+			eru.cur_x = match - row->render;
+			eru.row_offset = eru.num_rows;
+			break;
+		}
+	}
+
+	free(query);
 }
 
 void
@@ -646,6 +856,7 @@ eru_init(void)
 	eru.row_offset = 0;
 	eru.col_offset = 0;
 	eru.num_rows = 0;
+	eru.dirty = 0;
 	eru.filename = NULL;
 	eru.status_msg[0] = '\0';
 	eru.status_msg_time = 0;
@@ -666,7 +877,7 @@ main(int argc, char *argv[])
 	if (argc >= 2)
 		eru_open(argv[1]);
 
-	eru_set_status_message("HELP: Ctrl+Q to quit Eru");
+	eru_set_status_message("[ERU] Quit: Ctrl+Q | Save: Ctrl+S");
 
 	for (;;) {
 		eru_clear_screen();
