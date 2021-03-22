@@ -17,6 +17,8 @@
 #include <sys/ioctl.h>
 #include <sys/types.h>
 #include <string.h>
+#include <stdarg.h>
+#include <fcntl.h>
 #include <time.h>
 #include <termios.h>
 #include <errno.h>
@@ -97,6 +99,23 @@ eru_open(char *filename)
 
 	free(line);
 	fclose(fp);
+}
+
+void
+eru_save(void)
+{
+	if (eru.filename == NULL)
+		return;
+
+	int len;
+	char *buf = eru_rows_to_string(&len);
+	int fd = open(eru.filename, O_RDWR | O_CREAT, 0644);
+
+	ftruncate(fd, len);
+	write(fd, buf, len);
+
+	close(fd);
+	free(buf);
 }
 
 void
@@ -183,6 +202,7 @@ eru_clear_screen(void)
 
 	eru_draw_rows(&ab);
 	eru_draw_status_bar(&ab);
+	eru_draw_msg_bar(&ab);
 
 	char buf[32];
 	snprintf(buf, sizeof(buf), "\x1b[%d;%dH", (eru.cur_y - eru.row_offset) + 1, 
@@ -342,6 +362,29 @@ eru_row_curx_to_renx(Row *row, int cx)
 	return rx;
 }
 
+char *
+eru_rows_to_string(int *buf_len)
+{
+	int total_len = 0;
+	int i;
+
+	for (i = 0; i < eru.num_rows; i++)
+		total_len += eru.row[i].size + 1;
+
+	*buf_len = total_len;
+	char *buf = malloc(total_len);
+	char *p = buf;
+
+	for (i = 0; i < eru.num_rows; i++) {
+		memcpy(p, eru.row[i].chars, eru.row[i].size);
+		p += eru.row[i].size;
+		*p = '\n';
+		p++;
+	}
+
+	return buf;
+}
+
 void
 eru_draw_status_bar(struct AppendBuffer *ab)
 {
@@ -362,6 +405,32 @@ eru_draw_status_bar(struct AppendBuffer *ab)
 	}
 
 	abuf_append(ab, "\x1b[m", 3);
+	abuf_append(ab, "\r\n", 2);
+}
+
+void
+eru_set_status_msg(const char *fmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	vsnprintf(eru.status_msg, sizeof(eru.status_msg), fmt, ap);
+	va_end(ap);
+
+	eru.status_msg_time = time(NULL);
+}
+
+void
+eru_draw_msg_bar(struct AppendBuffer *ab)
+{
+	abuf_append(ab, "\x1b[K", 3);
+	int msg_len = strlen(eru.status_msg);
+
+	if (msg_len > eru.screen_cols)
+		msg_len = eru.screen_cols;
+
+	if (msg_len && time(NULL) - eru.status_msg_time < 5)
+		abuf_append(ab, eru.status_msg, msg_len);
 }
 
 void
@@ -437,6 +506,9 @@ eru_process_keypress(void)
 	int c = eru_read_key();
 
 	switch (c) {
+	case '\r':
+		break;
+
 	case CTRL_KEY('q'):
 		eru_clear_screen();
 		exit(0);
@@ -475,6 +547,23 @@ eru_process_keypress(void)
 	case END:
 		if (eru.cur_y < eru.num_rows)
 			eru.cur_x = eru.row[eru.cur_y].size;
+		break;
+
+	case BACKSPACE:
+	case CTRL_KEY('h'):
+	case DELETE:
+		break;
+
+	case CTRL_KEY('l'):
+	case '\x1b':
+		break;
+
+	case CTRL_KEY('s'):
+		eru_save();
+		break;
+
+	default:
+		eru_insert_char(c);
 		break;
 	}
 }
@@ -525,6 +614,30 @@ eru_move_cursor(int key)
 }
 
 void
+eru_row_insert_char(Row *row, int cur_row, int c)
+{
+	if (cur_row < 0 || cur_row > row->size)
+		cur_row = row->size;
+
+	row->chars = realloc(row->chars, row->size + 2);
+	memmove(&row->chars[cur_row + 1], &row->chars[cur_row], row->size - cur_row + 1);
+	row->size++;
+	row->chars[cur_row] = c;
+
+	eru_update_row(row);
+}
+
+void
+eru_insert_char(int c)
+{
+	if (eru.cur_y == eru.num_rows)
+		eru_append_row("", 0);
+
+	eru_row_insert_char(&eru.row[eru.cur_y], eru.cur_x, c);
+	eru.cur_x++;
+}
+
+void
 eru_init(void)
 {
 	eru.cur_x = 0;
@@ -541,7 +654,7 @@ eru_init(void)
 	if (get_window_size(&eru.screen_rows, &eru.screen_cols) == -1)
 		eru_error("[!] ERROR: eru: ");
 
-	eru.screen_rows--;
+	eru.screen_rows -= 2;
 }
 
 int
@@ -552,6 +665,8 @@ main(int argc, char *argv[])
 
 	if (argc >= 2)
 		eru_open(argv[1]);
+
+	eru_set_status_message("HELP: Ctrl+Q to quit Eru");
 
 	for (;;) {
 		eru_clear_screen();
