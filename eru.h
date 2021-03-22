@@ -39,12 +39,14 @@ void eru_move_cursor(char);
 void eru_init(void);
 
 enum eru_key {
-	LEFT = 'a' = 1000,
-	RIGHT = 'd',
-	UP = 'w',
-	DOWN = 's',
+	LEFT = 1000,
+	RIGHT,
+	UP,
+	DOWN,
 	PAGE_UP,
 	PAGE_DOWN,
+	HOME,
+	END,
 };
 
 struct Editor {
