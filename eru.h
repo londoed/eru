@@ -21,6 +21,7 @@
 #include <errno.h>
 
 #define ERU_VERSION "0.0.2"
+#define TAB_STOP 8
 
 #define CTRL_KEY(k) ((k) & 0x1F)
 #define ABUF_INIT {NULL, 0}
@@ -29,11 +30,16 @@ void eru_error(const char *);
 void disable_raw_mode(void);
 void enable_raw_mode(void);
 
-void eru_open(void);
+void eru_open(char *);
 void eru_scroll(void);
 void eru_draw_rows(AppendBuffer *);
 void eru_clear_screen(void);
 void eru_read_key(void);
+
+void eru_append_row(char *, size_t len);
+void eru_update_row(Row *);
+int eru_row_curx_to_renx(Row *, int);
+void eru_draw_status_bar(struct AppendBuffer *);
 
 void abuf_append(struct AppendBuffer *, const char *, int);
 void abuf_free(struct AppendBuffer *);
@@ -43,7 +49,6 @@ int get_cursor_position(int *, int *);
 void eru_process_keypress(void);
 
 void eru_move_cursor(char);
-
 void eru_init(void);
 
 enum eru_key {
@@ -59,13 +64,15 @@ enum eru_key {
 };
 
 typedef struct Row {
-	int size;
+	int size, rsize;
 	char *chars;
+	char *render;
 } Row;
 
 struct Editor {
 	struct termios orig;
 	int cur_x, cur_y;
+	int ren_x;
 	int screen_rows, screen_cols;
 	int num_rows;
 	int row_offset;

@@ -73,7 +73,7 @@ enable_raw_mode(void)
 */
 
 void
-eru_open(void)
+eru_open(char *filename)
 {
 	FILE *fp = fopen(filename, "r");
 
@@ -93,23 +93,27 @@ eru_open(void)
 
 	free(line);
 	fclose(fp);
-	}
 }
 
 void
 eru_scroll(void)
 {
+	eru.ren_x = 0;
+
+	if (eru.cur_y < eru.num_rows)
+		eru.ren_x = eru_row_curx_to_renx(&eru.row[eru.cur_y], eru.cur_x);
+
 	if (eru.cur_y < eru.row_offset)
 		eru.row_offset = eru.cur_y;
 
 	if (eru.cur_y >= eru.row_offset + eru.screen_rows)
 		eru.row_offset = eru.cur_y - eru.screen_rows + 1;
 
-	if (eru.cur_x < eru.col_offset)
-		eru.col_offset = eru.cur_x;
+	if (eru.ren_x < eru.col_offset)
+		eru.col_offset = eru.ren_x;
 
-	if (eru.cur_x >= eru.col_offset + eru.screen_cols)
-		eru.col_offset = eru.cur_x - eru.screen_cols + 1;
+	if (eru.ren_x >= eru.col_offset + eru.screen_cols)
+		eru.col_offset = eru.ren_x - eru.screen_cols + 1;
 }
 
 void
@@ -147,7 +151,7 @@ eru_draw_rows(struct AppendBuffer *ab)
 			if (i < eru.screen_rows - 1)
 				abuf_append(ab, "\r\n", 2);
 		} else {
-			int len = eru.row[file_row].size - eru.col_offset;
+			int len = eru.row[file_row].rsize - eru.col_offset;
 
 			if (len < 0)
 				len = 0;
@@ -155,8 +159,11 @@ eru_draw_rows(struct AppendBuffer *ab)
 			if (len > eru.screen_cols)
 				len = eru.screen_cols;
 
-			abuf_append(ab, &eru.row[file_row].chars[eru.col_offset], len);
+			abuf_append(ab, &eru.row[file_row].render[eru.col_offset], len);
 		}
+
+		abuf_append(ab, "\x1b[K", 3);
+		abuf_append(ab, "\r\n", 2);
 	}
 }
 
@@ -170,10 +177,12 @@ eru_clear_screen(void)
 	abuf_append(&ab, "\x1b[?25l", 6);
 	abuf_append(&ab, "\x1b[H", 3);
 
-	eru_draw_rows(&ab);;
+	eru_draw_rows(&ab);
+	eru_draw_status_bar(&ab);
+
 	char buf[32];
 	snprintf(buf, sizeof(buf), "\x1b[%d;%dH", (eru.cur_y - eru.row_offset) + 1, 
-		(eru.cur_x - eru.col_offset) + 1);
+		(eru.ren_x - eru.col_offset) + 1);
 
 	abuf_append(&ab, buf, strlen(buf));
 	abuf_append(&ab, "\x1b[?25h", 6);
@@ -279,7 +288,68 @@ eru_append_row(char *s, size_t len)
 
 	memcpy(eru.row[cur_row].chars, s, len);
 	eru.row[cur_row].chars[len] = '\0';
+	eru.row[cur_row].rsize = 0;
+	eru.row[cur_row].render = NULL;
+
+	eru_update_row(&eru.row[cur_row]);
 	eru.num_rows++;
+}
+
+void
+eru_update_row(Row *row)
+{
+	int i, idx = 0, tabs = 0;
+	
+	for (i = 0; i < row->size; i++) {
+		if (row->chars[i] == '\t')
+			tabs++;
+	}
+
+	free(row->render);
+	row->render = malloc(row->size + tabs * (TAB_STOP - 1) + 1);
+
+	for (i = 0; i < row->size; i++) {
+		if (row->chars[i] == '\t') {
+			row->render[idx++] = ' ';
+
+			while (idx % TAB_STOP != 0)
+				row->render[idx++] = ' ';
+		} else {
+			row->render[idx++] = row->chars[i];
+		}
+	}
+
+	row->render[idx] = '\0';
+	row->rsize = idx;
+}
+
+int
+eru_row_curx_to_renx(Row *row, int cx)
+{
+	int rx = 0, i;
+
+	for (i = 0; i < cx; i++) {
+		if (row->chars[i] == '\t')
+			rx += (TAB_STOP - 1) - (rx % TAB_STOP);
+
+		rx++;
+	}
+
+	return rx;
+}
+
+void
+eru_draw_status_bar(struct AppendBuffer *ab)
+{
+	abuf_append(ab, "\x1b[7m", 4);
+	int len = 0;
+
+	while (len < eru.screen_cols) {
+		abuf_append(ab, " ", 1);
+		len++;
+	}
+
+	abuf_append(ab, "\x1b[m", 3);
 }
 
 void
@@ -370,6 +440,14 @@ eru_process_keypress(void)
 	case PAGE_UP:
 	case PAGE_DOWN:
 		{
+			if (c == PAGE_UP)
+				eru.cur_y = eru.row_offset;
+			else if (c == PAGE_DOWN)
+				eru.cur_y = eru.row_offset + eru.screen_rows - 1;
+
+			if (eru.cur_y > eru.num_rows)
+				eru.cur_y = eru.num_rows;
+
 			int times = eru.screen_rows;
 
 			while (times--)
@@ -383,7 +461,8 @@ eru_process_keypress(void)
 		break;
 
 	case END:
-		eru.cur_x = eru.screen_cols - 1;
+		if (eru.cur_y < eru.num_rows)
+			eru.cur_x = eru.row[eru.cur_y].size;
 		break;
 	}
 }
@@ -438,6 +517,7 @@ eru_init(void)
 {
 	eru.cur_x = 0;
 	eru.cur_y = 0;
+	eru.ren_x = 0;
 	eru.row_offset = 0;
 	eru.col_offset = 0;
 	eru.num_rows = 0;
@@ -445,6 +525,8 @@ eru_init(void)
 
 	if (get_window_size(&eru.screen_rows, &eru.screen_cols) == -1)
 		eru_error("[!] ERROR: eru: ");
+
+	eru.screen_rows--;
 }
 
 int
