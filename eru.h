@@ -6,9 +6,9 @@
  * Refer to the file LICENSE for additional details.
 **/
 
-#define _DEFAULT_SOURCE
-#define _BSD_SOURCE
-#define _GNU_SOURCE
+//#define _DEFAULT_SOURCE
+//#define _BSD_SOURCE
+//#define _GNU_SOURCE
 
 #include <ctype.h>
 #include <stdio.h>
@@ -23,7 +23,7 @@
 #include <termios.h>
 #include <errno.h>
 
-#define ERU_VERSION "0.0.2"
+#define ERU_VERSION "0.0.5"
 #define TAB_STOP 8
 #define QUIT_TIMES 3
 #define HIGHLIGHT_NUMBERS (1 << 0)
@@ -104,9 +104,9 @@ void enable_raw_mode(void);
 void eru_open(char *);
 void eru_save(void);
 void eru_scroll(void);
-void eru_draw_rows(AppendBuffer *);
+void eru_draw_rows(struct AppendBuffer *);
 void eru_clear_screen(void);
-void eru_read_key(void);
+int eru_read_key(void);
 
 void eru_insert_row(int, char *, size_t len);
 void eru_update_row(Row *);
@@ -139,10 +139,11 @@ void eru_del_char(void);
 void eru_insert_char(int);
 
 void eru_free_row(Row *);
-void eru_del_row(int)
+void eru_del_row(int);
 void eru_insert_newline(void);
 
-char *eru_prompt(char *, (void)(char *, int));
+char *eru_prompt(char *, void (char *, int));
 void eru_search(void);
+void eru_search_cb(char *, int);
 
 void eru_init(void);

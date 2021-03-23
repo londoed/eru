@@ -506,7 +506,7 @@ eru_draw_status_bar(struct AppendBuffer *ab)
 	char status[80], rstatus[80];
 	int len = snprintf(status, sizeof(status), "%.20s -- %d lines %s",
 		eru.filename ? eru.filename : "[NO NAME]", eru.num_rows, eru.dirty ? "(modified)" : "");
-	int rlen = snprintf(rstatus, sizeof(rstatus), "%s | %d/%d", eru.syntax ? eru->syntax->filetype :
+	int rlen = snprintf(rstatus, sizeof(rstatus), "%s | %d/%d", eru.syntax ? eru.syntax->filetype :
 			"No Filetype", eru.cur_y + 1, eru.num_rows);
 
 	while (len < eru.screen_cols) {
@@ -933,7 +933,7 @@ eru_move_cursor(int key)
 		break;
 	}
 
-	row = (eru.cur_y >= eru.num_rows) ? NULL : eru.row[eru.cur_y];
+	row = (eru.cur_y >= eru.num_rows) ? NULL : &eru.row[eru.cur_y];
 	int row_len = row ? row->size : 0;
 
 	if (eru.cur_x > row_len)
@@ -1099,9 +1099,9 @@ eru_search(void)
 	int saved_cur_y = eru.cur_y;
 	int saved_col_offset = eru.col_offset;
 	int saved_row_offset = eru.row_offset;
-	char *query = eru_prompt("[!] SEARCH: %s (Use Arrows/Enter, ESC to quit)", eru_find_cb);
+	char *query = eru_prompt("[!] SEARCH: %s (Use Arrows/Enter, ESC to quit)", eru_search_cb);
 	
-	if (query)
+	if (query) {
 		free(query);
 	} else {
 		eru.cur_x = saved_cur_x;
@@ -1149,8 +1149,8 @@ eru_search_cb(char *query, int key)
 		curr *= direction;
 
 		if (curr == -1)
-			curr = e.num_rows - 1;
-		else if (curr == e.num_rows)
+			curr = eru.num_rows - 1;
+		else if (curr == eru.num_rows)
 			curr = 0;
 
 		Row *row = &eru.row[curr];
