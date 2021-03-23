@@ -43,10 +43,17 @@ enum eru_key {
 	DELETE,
 };
 
+enum eru_highlight {
+	HIGHLIGHT_NORMAL = 0,
+	HIGHLIGHT_NUMBER,
+	HIGHLIGHT_MATCH,
+};
+
 typedef struct Row {
 	int size, rsize;
 	char *chars;
 	char *render;
+	unsigned char *highlight;
 } Row;
 
 struct Editor {
@@ -96,6 +103,10 @@ void abuf_free(struct AppendBuffer *);
 
 int get_window_size(int *, int *);
 int get_cursor_position(int *, int *);
+int eru_syntax_colored(int);
+void eru_update_syntax(Row *);
+int is_separator(int);
+
 void eru_process_keypress(void);
 void eru_move_cursor(char);
 

@@ -204,17 +204,32 @@ eru_draw_rows(struct AppendBuffer *ab)
 				len = eru.screen_cols;
 
 			char *c = &eru.row[file_row].render[eru.col_offset];
+			unsigned char *hl = &eru.row[file_row].highlight[eru.col_offset];
+			int curr_color = -1;
 			int j;
 
 			for (j = 0; j < len; j++) {
-				if (isdigit(c[j])) {
-					abuf_append(ab, "\x1b[31m", 5);
+				if (hl[j] == HIGHLIGHT_NORMAL) {
+					if (curr_color != -1) {
+						abuf_append(ab, "\x1b[39m", 5);
+						curr_color = -1;
+					}
+
 					abuf_append(ab, &c[j], 1);
-					abuf_append(ab, "\x1b[39m", 5);
 				} else {
+					int color = eru_syntax_colored(hl[j]);
+
+					if (color != curr_color) {
+						char buf[16];
+						int c_len = snprintf(buf, sizeof(buf), "\x1b[%dm", color);
+						abuf_append(ab, buf, c_len);
+					}
+
 					abuf_append(ab, &c[j], 1);
 				}
 			}
+
+			abuf_append(ab, "\x1b[K", 3);
 		}
 
 		abuf_append(ab, "\x1b[K", 3);
@@ -349,6 +364,7 @@ eru_insert_row(int cur_pos, char *s, size_t len)
 	eru.row[cur_pos].chars[len] = '\0';
 	eru.row[cur_pos].rsize = 0;
 	eru.row[cur_pos].render = NULL;
+	eru.row[cur_pos].highlight = NULL;
 
 	eru_update_row(&eru.row[cur_pos]);
 	eru.num_rows++;
@@ -381,6 +397,7 @@ eru_update_row(Row *row)
 
 	row->render[idx] = '\0';
 	row->rsize = idx;
+	eru_update_syntax(row);
 }
 
 int
@@ -565,6 +582,44 @@ get_cursor_position(int *rows, int *cols)
 		return -1;
 
 	return 0;
+}
+
+int
+eru_syntax_colored(int hl)
+{
+	switch (hl) {
+	case HIGHLIGHT_NUMBER:
+		return 31;
+
+	case HIGHLIGHT_MATCH:
+		return 34;
+
+	default:
+		return 37;
+	}
+}
+
+void
+eru_update_syntax(Row *row)
+{
+	row->highlight = realloc(row->highlight, row->rsize);
+	memset(row->highlight, HIGHLIGHT_NORMAL, row->rsize);
+	int i = 0;
+
+	while (i < row->rsize) {
+		char c = row->render[i];
+
+		if (isdigit(c))
+			row->hi[i] = HIGHLIGHT_NUMBER;
+
+		i++;
+	}
+}
+
+int
+is_separator(int c)
+{
+	return isspace(c) || c == '\0' || strchr(",.()+-/*=~%<>[];", c) != NULL;
 }
 
 void
@@ -763,6 +818,7 @@ eru_free_row(Row *row)
 {
 	free(row->render);
 	free(row->chars);
+	free(row->highlight);
 }
 
 void
@@ -871,6 +927,14 @@ eru_search_cb(char *query, int key)
 {
 	static int last_match = -1;
 	static int direction = 1;
+	static int saved_hl_line;
+	static char *saved_hl = NULL;
+
+	if (saved_hl) {
+		memcpy(eru.row[saved_hl_line].highlight, saved_hl, eru.row[saved_hl_line].rsize);
+		free(saved_hl);
+		saved_hl = NULL;
+	}
 
 	if (key == '\r' || key == '\x1b') {
 		last_match = -1;
@@ -908,6 +972,12 @@ eru_search_cb(char *query, int key)
 			eru.cur_y = curr;
 			eru.cur_x = eru_row_renx_to_curx(row, match - row->render);
 			eru.row_offset = eru.num_rows;
+
+			saved_hl_line = curr;
+			saved_hl = malloc(row->rsize);
+			
+			memcpy(saved_hl, row->highlight, row->rsize);
+			memset(&row->highlight[match - row->render], HIGHLIGHT_MATCH, strlen(query));
 			break;
 		}
 	}
