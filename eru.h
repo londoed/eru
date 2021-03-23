@@ -27,6 +27,7 @@
 #define TAB_STOP 8
 #define QUIT_TIMES 3
 #define HIGHLIGHT_NUMBERS (1 << 0)
+#define HIGHLIGHT_STRINGS (1 << 1)
 #define HLDB_ENTRIES (sizeof(hldb) / sizeof(hldb[0]))
 
 #define CTRL_KEY(k) ((k) & 0x1F)
@@ -47,12 +48,19 @@ enum eru_key {
 
 enum eru_highlight {
 	HIGHLIGHT_NORMAL = 0,
+	HIGHLIGHT_COMMENT,
+	HIGHLIGHT_ML_COMMENT,
+	HIGHLIGHT_STRING,
 	HIGHLIGHT_NUMBER,
 	HIGHLIGHT_MATCH,
+	HIGHLIGHT_KEYW1,
+	HIGHLIGHT_KEYW2,
 };
 
 typedef struct Row {
+	int idx;
 	int size, rsize;
+	int hl_open_comment;
 	char *chars;
 	char *render;
 	unsigned char *highlight;
@@ -82,6 +90,10 @@ struct AppendBuffer {
 struct Syntax {
 	char *filetype;
 	char **file_match;
+	char *sline_comment_start;
+	char *mline_comment_start;
+	char *mline_comment_end;
+	char **keywords;
 	int flags;
 };
 
@@ -112,22 +124,25 @@ void abuf_free(struct AppendBuffer *);
 
 int get_window_size(int *, int *);
 int get_cursor_position(int *, int *);
-int eru_syntax_colored(int);
-void eru_update_syntax(Row *);
-int is_separator(int);
 
+int eru_syntax_colored(int);
+void eru_select_syntax_highlight(void);
+void eru_update_syntax(Row *);
+
+int is_separator(int);
 void eru_process_keypress(void);
-void eru_move_cursor(char);
+void eru_move_cursor(int);
 
 void eru_row_insert_char(Row *, int, int);
 void eru_row_del_char(Row *, int);
 void eru_del_char(void);
 void eru_insert_char(int);
 
-void eru_free_row(Row);
+void eru_free_row(Row *);
 void eru_del_row(int)
 void eru_insert_newline(void);
 
 char *eru_prompt(char *, (void)(char *, int));
 void eru_search(void);
+
 void eru_init(void);

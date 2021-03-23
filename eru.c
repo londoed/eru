@@ -27,9 +27,15 @@
 
 struct Editor eru;
 char *c_hl_exts[] = { ".c", ".h", ".cpp", ".cc", ".hpp", NULL };
+char *c_hl_keywords[] = {
+	"switch", "if", "while", "for", "break", "continue", "return", "else",
+	"struct", "union", "typedef", "static", "enum", "class", "case",
+	"int_", "long_", "double_", "float_", "char_", "unsigned", "signed_",
+	"void_", "bool_", NULL, 
+};
 
 struct Syntax hldb[] = {
-	{ "c", c_hl_exts, HIGHLIGHT_NUMBERS },
+	{ "c", c_hl_exts, c_hl_keywords, "//", "/*", "*/", HIGHLIGHT_NUMBERS | HIGHLIGHT_STRINGS },
 };
 
 void
@@ -85,6 +91,7 @@ eru_open(char *filename)
 {
 	free(eru.filename);
 	eru.filename = strdup(filename);
+	eru_select_syntax_highlight();
 
 	FILE *fp = fopen(filename, "r");
 
@@ -118,6 +125,8 @@ eru_save(void)
 
 			return;
 		}
+
+		eru_select_syntax_highlight();
 	}
 
 	int len;
@@ -214,7 +223,18 @@ eru_draw_rows(struct AppendBuffer *ab)
 			int j;
 
 			for (j = 0; j < len; j++) {
-				if (hl[j] == HIGHLIGHT_NORMAL) {
+				if (iscntrl(c[j])) {
+					char sym = (c[j] <= 26) ? '@' + c[j] : '?';
+					abuf_append(ab, "\x1b[7m", 4);
+					abuf_append(ab, &sym, 1);
+					abuf_append(ab, "\x1b[m", 3);
+
+					if (curr_color != -1) {
+						char buf[16];
+						int clen = snprintf(buf, sizeof(buf), "\x1b[%dm", curr_color);
+						abuf_append(ab, buf, clen);
+					}
+				} else if (hl[j] == HIGHLIGHT_NORMAL) {
 					if (curr_color != -1) {
 						abuf_append(ab, "\x1b[39m", 5);
 						curr_color = -1;
@@ -362,6 +382,10 @@ eru_insert_row(int cur_pos, char *s, size_t len)
 	eru.row = realloc(eru.row, sizeof(Row) * (eru.num_rows + 1));
 	memmove(&eru.row[cur_pos + 1], &eru.row[cur_pos], sizeof(Row) * (eru.num_rows - cur_pos));
 
+	for (int j = cur_pos + 1; j <= eru.num_rows; j++)
+		eru.row[j].idx++;
+	
+	eru.row[cur_pos].idx = cur_pos;
 	eru.row[cur_pos].size = len;
 	eru.row[cur_pos].chars = malloc(len + 1);
 
@@ -370,6 +394,7 @@ eru_insert_row(int cur_pos, char *s, size_t len)
 	eru.row[cur_pos].rsize = 0;
 	eru.row[cur_pos].render = NULL;
 	eru.row[cur_pos].highlight = NULL;
+	eru.row[cur_pos].hl_open_comment = 0;
 
 	eru_update_row(&eru.row[cur_pos]);
 	eru.num_rows++;
@@ -594,11 +619,23 @@ int
 eru_syntax_colored(int hl)
 {
 	switch (hl) {
+	case HIGHLIGHT_ML_COMMENT:
+	case HIGHLIGHT_COMMENT:
+		return 36;
+	case HIGHLIGHT_STRING:
+		return 35;
+
 	case HIGHLIGHT_NUMBER:
 		return 31;
 
 	case HIGHLIGHT_MATCH:
 		return 34;
+
+	case HIGHLIGHT_KEYW1:
+		return 33;
+
+	case HIGHLIGHT_KEYW2:
+		return 32;
 
 	default:
 		return 37;
@@ -626,6 +663,10 @@ eru_select_syntax_highlight(void)
 				(!is_ext && strstr(eru.filename, s->file_match[j])))) {
 				
 				eru.syntax = s;
+				int file_row;
+
+				for (file_row = 0; file_row < eru.num_rows; file_row++)
+					eru_update_syntax(&eru.row[file_row]);
 
 				return;
 			}
@@ -643,20 +684,108 @@ eru_update_syntax(Row *row)
 
 	if (eru.syntax == NULL)
 		return;
-
+	
+	char **keywords = eru.syntax->keywords;
+	char *scs = eru.syntax->sline_comment_start;
+	char *mcs = eru.syntax->mline_comment_start;
+	char *mce = eru.syntax->mline_comment_end;
+	
+	int scs_len = scs ? strlen(scs) : 0;
+	int mcs_len = mcs ? strlen(mcs) : 0;
+	int mce_len = mce ? strlen(mce) : 0;
 	int prev_sep = 1;
+	int in_str = 0;
+	int in_cmt = (row->idx > 0 && eru.row[row->idx - 1].hl_open_comment);
 	int i = 0;
 
 	while (i < row->rsize) {
 		char c = row->render[i];
 		unsigned char prev_hl = (i > 0) ? row->highlight[i - 1] : HIGHLIGHT_NORMAL;
+
+		if (scs_len && !in_str && !in_cmt) {
+			if (!strncmp(&row->render[i], scs, scs_len)) {
+				memset(&row->highlight[i], HIGHLIGHT_COMMENT, row->rsize - i);
+				break;
+			}
+		}
+
+		if (mcs_len && mce_len && !in_str) {
+			if (in_cmt) {
+				row->highlight[i] = HIGHLIGHT_ML_COMMENT;
+
+				if (!strncmp(&row->render[i], mce, mce_len)) {
+					memset(&row->highlight[i], HIGHLIGHT_ML_COMMENT, mce_len);
+					i += mce_len;
+					in_cmt = 0;
+					prev_sep = 1;
+					continue;
+				} else {
+					i++;
+					continue;
+				}
+			} else if (!strncmp(&row->render[i], mcs, mcs_len)) {
+				memset(&row->highlight[i], HIGHLIGHT_ML_COMMENT, mcs_len);
+				i += mcs_len;
+				in_cmt = 1;
+				continue;
+			}
+		}
+
+		if (eru.syntax->flags & HIGHLIGHT_STRINGS) {
+			if (in_str) {
+				row->highlight[i] = HIGHLIGHT_STRING;
+
+				if (c == '\\' && i + 1 < row->rsize) {
+					row->highlight[i + 1] = HIGHLIGHT_STRING;
+					i += 2;
+					continue;
+				}
+
+				if (c == in_str)
+					in_str = 0;
+
+				i++;
+				prev_sep = 1;
+				continue;
+			} else {
+				if (c == '"' || c == '\'') {
+					in_str = c;
+					row->highlight[i] = HIGHLIGHT_STRING;
+					i++;
+					continue;
+				}
+			}
+		}
 		
 		if (eru.syntax->flags & HIGHLIGHT_NUMBERS) {
-			if (isdigit(c) && (prev_sep || prev_hl == HIGHLIGHT_NUMBER)) ||
-				(c == '.' && prev_hl = HIGHLIGHT_NUMBER) {
+			if (isdigit(c) && (prev_sep || prev_hl == HIGHLIGHT_NUMBER) ||
+				(c == '.' && prev_hl == HIGHLIGHT_NUMBER)) {
 			
-				row->hi[i] = HIGHLIGHT_NUMBER;
+				row->highlight[i] = HIGHLIGHT_NUMBER;
 				i++;
+				prev_sep = 0;
+				continue;
+			}
+		}
+
+		if (prev_sep) {
+			int j;
+
+			for (j = 0; keywords[j]; j++) {
+				int klen = strlen(keywords[j]);
+				int kw2 = keywords[j][klen - 1] == "_";
+
+				if (kw2)
+					klen--;
+
+				if (!strncmp(&row->render[i], keywords[j], klen) && is_separator(row->render[i + klen])) {
+					memset(&row->highlight[i], kw2 ? HIGHLIGHT_KEYW2 : HIGHLIGHT_KEYW1, klen);
+					i += klen;
+					break;
+				}
+			}
+
+			if (keywords[j] != NULL) {
 				prev_sep = 0;
 				continue;
 			}
@@ -665,6 +794,12 @@ eru_update_syntax(Row *row)
 		prev_sep = is_separator(c);
 		i++;
 	}
+
+	int changed = (row->hl_open_comment != in_cmt);
+	row->hl_open_comment = in_cmt;
+
+	if (changed && row->idx + 1 < eru.num_rows)
+		eru_update_syntax(&eru.row[row->idx + 1]);
 }
 
 int
@@ -880,6 +1015,9 @@ eru_del_row(int cur_pos)
 
 	eru_free_row(&eru.row[cur_pos]);
 	memmove(&eru.row[cur_pos], &eru.row[cur_pos + 1], sizeof(Row) * (eru.num_rows - cur_pos - 1));
+
+	for (int i = cur_pos; i < eru.num_rows - 1; i++)
+		eru.row[i].idx--;
 
 	eru.num_rows--;
 	eru.dirty++;
