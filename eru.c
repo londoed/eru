@@ -26,6 +26,11 @@
 #include "eru.h"
 
 struct Editor eru;
+char *c_hl_exts[] = { ".c", ".h", ".cpp", ".cc", ".hpp", NULL };
+
+struct Syntax hldb[] = {
+	{ "c", c_hl_exts, HIGHLIGHT_NUMBERS },
+};
 
 void
 eru_error(const char *s)
@@ -476,7 +481,8 @@ eru_draw_status_bar(struct AppendBuffer *ab)
 	char status[80], rstatus[80];
 	int len = snprintf(status, sizeof(status), "%.20s -- %d lines %s",
 		eru.filename ? eru.filename : "[NO NAME]", eru.num_rows, eru.dirty ? "(modified)" : "");
-	int rlen = snprintf(rstatus, sizeof(rstatus), "%d/%d", eru.cur_y + 1, eru.num_rows);
+	int rlen = snprintf(rstatus, sizeof(rstatus), "%s | %d/%d", eru.syntax ? eru->syntax->filetype :
+			"No Filetype", eru.cur_y + 1, eru.num_rows);
 
 	while (len < eru.screen_cols) {
 		if (eru.screen_cols - len == rlen) {
@@ -600,18 +606,63 @@ eru_syntax_colored(int hl)
 }
 
 void
+eru_select_syntax_highlight(void)
+{
+	eru.syntax = NULL;
+
+	if (eru.filename == NULL)
+		return;
+
+	char *ext = strrchr(eru.filename, '.');
+
+	for (unsigned int i = 0; i < HLDB_ENTRIES; i++) {
+		struct Syntax *s = &hldb[i];
+		unsigned int j = 0;
+
+		while (s->file_match[j]) {
+			int is_ext = (s->file_match[j][0] == '.');
+
+			if ((is_ext && ext && !strcmp(ext, s->file_match[j]) ||
+				(!is_ext && strstr(eru.filename, s->file_match[j])))) {
+				
+				eru.syntax = s;
+
+				return;
+			}
+
+			i++;
+		}
+	}
+}
+
+void
 eru_update_syntax(Row *row)
 {
 	row->highlight = realloc(row->highlight, row->rsize);
 	memset(row->highlight, HIGHLIGHT_NORMAL, row->rsize);
+
+	if (eru.syntax == NULL)
+		return;
+
+	int prev_sep = 1;
 	int i = 0;
 
 	while (i < row->rsize) {
 		char c = row->render[i];
-
-		if (isdigit(c))
-			row->hi[i] = HIGHLIGHT_NUMBER;
-
+		unsigned char prev_hl = (i > 0) ? row->highlight[i - 1] : HIGHLIGHT_NORMAL;
+		
+		if (eru.syntax->flags & HIGHLIGHT_NUMBERS) {
+			if (isdigit(c) && (prev_sep || prev_hl == HIGHLIGHT_NUMBER)) ||
+				(c == '.' && prev_hl = HIGHLIGHT_NUMBER) {
+			
+				row->hi[i] = HIGHLIGHT_NUMBER;
+				i++;
+				prev_sep = 0;
+				continue;
+			}
+		}
+		
+		prev_sep = is_separator(c);
 		i++;
 	}
 }
@@ -997,6 +1048,7 @@ eru_init(void)
 	eru.status_msg[0] = '\0';
 	eru.status_msg_time = 0;
 	eru.row = NULL;
+	eru.syntax = NULL;
 
 	if (get_window_size(&eru.screen_rows, &eru.screen_cols) == -1)
 		eru_error("[!] ERROR: eru: ");

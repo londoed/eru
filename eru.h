@@ -26,6 +26,8 @@
 #define ERU_VERSION "0.0.2"
 #define TAB_STOP 8
 #define QUIT_TIMES 3
+#define HIGHLIGHT_NUMBERS (1 << 0)
+#define HLDB_ENTRIES (sizeof(hldb) / sizeof(hldb[0]))
 
 #define CTRL_KEY(k) ((k) & 0x1F)
 #define ABUF_INIT {NULL, 0}
@@ -68,12 +70,19 @@ struct Editor {
 	char filename;
 	char status_msg[80];
 	time_t status_msg_time;
+	struct Syntax *syntax;
 	Row *row;
 };
 
 struct AppendBuffer {
 	char *buf;
 	int len;
+};
+
+struct Syntax {
+	char *filetype;
+	char **file_match;
+	int flags;
 };
 
 void eru_error(const char *);
