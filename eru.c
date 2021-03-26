@@ -25,7 +25,10 @@
 
 #include "eru.h"
 
+//struct Editor editor;
+//struct Editor *eru = &editor;
 struct Editor eru;
+
 char *c_hl_exts[] = { ".c", ".h", ".cpp", ".cc", ".hpp", NULL };
 char *c_hl_keywords[] = {
 	"switch", "if", "while", "for", "break", "continue", "return", "else",
@@ -562,6 +565,31 @@ abuf_append(struct AppendBuffer *ab, const char *s, int len)
 }
 
 void
+buffer_append(struct Buffer *buf, const char *s, int len)
+{
+	char *new_buf = realloc(buf->text, buf->len + len);
+
+	if (new_buf == NULL)
+		return;
+
+	memcpy(&new_buf[buf->len], s, len);
+	buf->text = new_buf;
+	buf->len += len;
+}
+
+/*
+void
+buffer_insert(struct Buffer *buf, SDL_Keycode kc)
+{
+	char *line = &buf->text[buf->y];
+	int i;
+
+	for (i = line; i < strlen(line) - 1; i++)'
+		line[i] = 
+}
+*/
+
+void
 abuf_free(struct AppendBuffer *ab)
 {
 	free(ab->buf);
@@ -1026,20 +1054,41 @@ eru_del_row(int cur_pos)
 void
 eru_insert_newline(void)
 {
-	if (eru.cur_x == 0) {
-		eru_insert_row(eru.cur_y, "", 0);
-	} else {
-		Row *row = &eru.row[eru.cur_y];
-		eru_insert_row(eru.cur_y + 1, &row->chars[eru.cur_x], row->size - eru.cur_x);
+	int file_row = eru.row_offset + eru.cur_y;
+	int file_col = eru.col_offset + eru.cur_x;
+	Row *row = (file_row >= eru.num_rows) ? NULL : &eru.row[file_row];
 
-		row = &eru.row[eru.cur_y];
-		row->size = eru.cur_x;
-		row->chars[row->size] = '\0';
-		eru_update_row(row);
+	if (!row) {
+		if (file_row == eru.num_rows) {
+			eru_insert_row(file_row, "", 0);
+			goto fix_cursor;
+		}
+
+		return;
 	}
 
-	eru.cur_y++;
+	if (file_col >= row->size)
+		file_col = row->size;
+
+	if (file_col == 0) {
+		eru_insert_row(file_row, "", 0);
+	} else {
+		eru_insert_row(file_row + 1, row->chars + file_col, row->size - file_col);
+		row = &eru.row[file_row];
+
+		row->chars[file_col] = '\0';
+		row->size = file_col;
+		eru_update_row(row);
+	}
+	
+fix_cursor:
+	if (eru.cur_y == eru.screen_rows - 1)
+		eru.row_offset++;
+	else
+		eru.cur_y++;
+
 	eru.cur_x = 0;
+	eru.col_offset = 0;
 }
 
 char *
