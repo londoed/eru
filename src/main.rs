@@ -8,7 +8,13 @@
 
 #![warn(clippy::all, clippy::pedantic)]
 mod eru;
+mod document;
+mod row;
+mod terminal;
+mod row;
 use eru::{Editor, Position);
+pub use document::Document;
+pub use row::Row;
 pub use terminal::Terminal;
 
 fn fatal(e: std::io::Error)
