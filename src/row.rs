@@ -61,4 +61,71 @@ impl Row {
     {
         self.len = self.string[..].graphmemes(true).count();
     }
+
+    pub fn insert(&mut self, at: usize, c: char)
+    {
+        if at >= self.len() {
+            self.string.push(c);
+        } else {
+            let mut result: String = self.string[..].graphmemes(true)
+                .take(at).collect();
+            let remainder: String = self.string[..].graphmemes(true)
+                .skip(at).collect();
+
+            result.push(c);
+            result.push_str(&remainder);
+            self.string = result;
+        }
+
+        self.update_len();
+    }
+
+    pub fn delete(&mut self, at: usize)
+    {
+        if at >= self.len() {
+            return;
+        } else {
+            let mut result: String = self.string[..]
+                .graphmemes(true)
+                .take(at)
+                .collect();
+            let remainder: String = self.string[..]
+                .graphmemes(true)
+                .skip(at + 1)
+                .collect();
+            
+            result.push_str(&remainder);
+            self.string = result;
+        }
+
+        self.update_len();
+    }
+
+    pub fn append(&mut self, new: &Self)
+    {
+        self.string = format!("{}{}", self.string, new.string);
+        self.update_len();
+    }
+
+    pub fn split(&mut self, at: usize) -> Self
+    {
+        let beginning: String = self.string[..]
+            .graphmemes(true)
+            .take(at)
+            .collect();
+        let remainder: String = self.string[..]
+            .graphmemes(true)
+            .skip(at)
+            .collect();
+
+        self.string = beginning;
+        self.update_len();
+
+        return Self::from(&remainder[..])
+    }
+
+    pub fn as_bytes(&self) -> &[u8]
+    {
+        return self.string.as_bytes()
+    }
 }

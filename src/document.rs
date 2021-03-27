@@ -8,7 +8,9 @@
 
 use crate::Row;
 use crate::Terminal;
+use crate::Position;
 use std::fs;
+use std::io::{Error, Write};
 
 pub struct Document {
     rows: Vec<Row>,
@@ -43,5 +45,70 @@ impl Document {
     pub fn len(&self) -> usize
     {
         self.rows.len();
+    }
+
+    pub fn insert_newline(&mut self, at: &Position)
+    {
+        if at.y > self.len() {
+            return;
+        }
+
+        if at.y == self.len() {
+            self.rows.push(Pow::default());
+            return;
+        }
+
+        let new_row = self.rows.get_mut(at.y)
+            .unwrap()
+            .split(at.x);
+        self.rows.insert(at.y + 1, new_row);
+    }
+
+    pub fn insert(&mut self, at: &Position, c: char)
+    {
+        if c == '\n' {
+            self.insert_newline(at);
+            return;
+        }
+
+        if at.y == self.len() {
+            let mut row = Row::default();
+            row.insert(0, c);
+            self.rows.push(row);
+        } else if at.y < self.len() {
+            let row = self.rows.get_mut(at.y).unwrap();
+            row.insert(at.x, c);
+        } 
+    }
+
+    pub fn delete(&mut self, at: &Position)
+    {
+        let len = self.len();
+        if at.y >= self.len() {
+            return;
+        }
+
+        if at.x == self.rows.get_mut(at.y).unwrap().len() && at.y < len - 1 {
+            let next_row = self.rows.remove(at.y + 1);
+            let row = self.rows.remove(at.y + 1);
+            row.append(&next_row);
+        } else {
+            let row = self.rows.get_mut(at.y).unwrap();
+            row.delete(at.x);
+        }
+    }
+
+    pub fn save(&self) -> Result<(), Error>
+    {
+        if let Some(file_name) = &self.file_name {
+            let mut file = fs::File::create(file_name);
+
+            for row in &self.rows {
+                file.write_all(row.as_bytes())?;
+                file.write_all(b"\n");
+            }
+        }
+
+        Ok(())
     }
 }

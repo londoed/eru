@@ -83,7 +83,7 @@ impl Editor {
     fn default() -> Self
     {
         let args: Vec<String> = env::args().collect();
-        let mut initial_status = String::from("[!] HELP: Ctrl-Q -- quit")
+        let mut initial_status = String::from("[!] HELP: Ctrl-Q -- quit | Ctrl-S -- save |")
         let document = if args.len() > 1 {
             let file_name = &args[1];
             let doc = Document::open(&file_name);
@@ -102,6 +102,7 @@ impl Editor {
             status_msg: StatusMsg::from(initial_status),
         }
     }
+
     fn refresh_screen(&self) -> Result <(), std::io::Error>
     {
         Terminal::cursor_hide();
@@ -131,6 +132,19 @@ impl Editor {
 
         match pressed_key {
             Key::Ctrl('q') => self.should_quit = true,
+            Key::Ctrl('s') => {
+                if self.document.save().is_ok() {
+                    self.status_msg = "[!] ATTENTION: File saved successfully!"
+                        .to_string();
+                } else {
+                    self.status_msg = StatusMsg::from("[!] ERROR: Error writing to file!"
+                        .to_string());
+                }
+            }
+            Key::Char(c) => {
+                self.document.insert(&self.cur_pos, c);
+                self.move_cursor(Key::Right);
+            }
             Key::Up |
             Key::Down |
             Key::Left |
@@ -140,6 +154,13 @@ impl Editor {
             Key::End |
             Key::Home => {
                 self.move_cursor(pressed_key);
+            }
+            Key::Delete => self.document.delete(&self.cur_pos);
+            Key::Backspace => {
+                if self.cur_pos.x > 0 || self.cur_pos.y > 0 {
+                    self.move_cursor(Key::Left);
+                    self.document.delete(&self.cur_pos);
+                }
             }
             _ => (),
         }
@@ -177,7 +198,7 @@ impl Editor {
             
             if let Some(row) = self.document.row(terminal_row as usize + self.offset.y) {
                 self.draw_row(row);
-            } else if self.document.is_empty() &&terminal_row == height / 3 {
+            } else if self.document.is_empty() && terminal_row == height / 3 {
                 self.draw_welcome_message();
             } else {
                 println!("~\r");
