@@ -86,12 +86,15 @@ impl Editor {
     {
         let args: Vec<String> = env::args().collect();
         let mut initial_status = String::from("[!] HELP: Ctrl-Q -- quit | Ctrl-S -- save |")
-        let document = if args.len() > 1 {
-            let file_name = &args[1];
-            let doc = Document::open(&file_name);
-        } else {
-            initial_status = format!("[!] ERROR: eru: Could not open file: {}", file_name);
-            Document::default();
+        let document = if let Some(file_name) = args.get(1) {
+            let doc = Document::open(file_name);
+
+            if let Ok(doc) = doc {
+                return doc
+            } else {
+                initial_status = format!("[!] ERROR: eru: Could not open file: {}", file_name);
+                Document::default();
+            }
         }
 
         Self{
@@ -147,12 +150,12 @@ impl Editor {
                 }
 
                 self.should_quit = true
-            }
+            },
             Key::Ctrl('s') => self.save(),
             Key::Char(c) => {
                 self.document.insert(&self.cur_pos, c);
                 self.move_cursor(Key::Right);
-            }
+            },
             Key::Up |
             Key::Down |
             Key::Left |
@@ -162,14 +165,14 @@ impl Editor {
             Key::End |
             Key::Home => {
                 self.move_cursor(pressed_key);
-            }
-            Key::Delete => self.document.delete(&self.cur_pos);
+            },
+            Key::Delete => self.document.delete(&self.cur_pos),
             Key::Backspace => {
                 if self.cur_pos.x > 0 || self.cur_pos.y > 0 {
                     self.move_cursor(Key::Left);
                     self.document.delete(&self.cur_pos);
                 }
-            }
+            },
             _ => (),
         }
         self.scroll();
@@ -191,21 +194,17 @@ impl Editor {
             self.refresh_screen()?;
 
             match Terminal::read_key()? {
-                Key::Backspace => {
-                    if !result.is_empty() {
-                        result.truncate(result.len() - 1);
-                    }
-                }
+                Key::Backspace => result.truncate(result.len().saturating_sub(1)),
                 Key::Char('\n') => break,
                 Key::Char(c) => {
                     if !c.is_control() {
                         result.push(c);
                     }
-                }
+                },
                 Key::Esc => {
                     result.truncate(0);
                     break;
-                }
+                },
                 _ => (),
             }
         }
@@ -224,6 +223,8 @@ impl Editor {
         let mut welcome_message = format!("Eru editor -- version {}", VERSION);
         let width = self.term.size().width as usize;
         let len = welcome_message.len();
+
+        #[allow(clippy::integer_arithmetic, clippy::integer_division)]
         let padding = width.saturating_sub(len) / 2;
         let spaces = " ".repeat(padding.saturating_sub(1));
 
@@ -231,11 +232,12 @@ impl Editor {
         println!("{}\r", welcome_message);
     }
 
+    #[allow(clippy::integer_division, clippy::integer_arithmetic)]
     pub fn draw_row(&self, row: &Row)
     {
         let width = self.term.size().width as usize;
         let start = self.offset.x;
-        let end = self.offset.x + width;
+        let end = self.offset.x.saturating_add(width);
         let row = row.render(start, end);
 
         println!("{}\r", row);
@@ -248,7 +250,7 @@ impl Editor {
         for terminal_row in 0..height {
             Terminal::clear_current_line();
             
-            if let Some(row) = self.document.row(terminal_row as usize + self.offset.y) {
+            if let Some(row) = self.document.row(self.offset.y.saturating_add(terminal_row as usize)) {
                 self.draw_row(row);
             } else if self.document.is_empty() && terminal_row == height / 3 {
                 self.draw_welcome_message();
@@ -274,7 +276,7 @@ impl Editor {
                 if y < height {
                     y = y.saturating_add(1);
                 }
-            }
+            },
             Key::Left => {
                 if x > 0 {
                     x -= 1;
@@ -287,7 +289,7 @@ impl Editor {
                         x = 0;
                     }
                 }
-            }
+            },
             Key::Right => {
                 if x < width {
                     x += 1;
@@ -295,21 +297,21 @@ impl Editor {
                     y += 1;
                     x = 0;
                 }
-            }
+            },
             Key::PageUp => {
                 y = if y > terminal_height {
-                    y - terminal_height
+                    y.saturating_sub(terminal_height)
                 } else {
                     0
                 }
-            }
+            },
             Key::PageDown => {
                 y = if y.saturating_add(terminal_height) < height {
-                    y + terminal_height as usize
+                   y.saturating_add(terminal_height)
                 } else {
                     height
                 }
-            }
+            },
             Key::Home => x = 0,
             key::End => x = width,
             _ => (),
@@ -374,10 +376,11 @@ impl Editor {
             self.document.len()
         );
 
+        #[allow(clippy::integer_arithmetic);]
         let len = status.len() + line_indicator.len();
 
         if width > status.len() {
-            status.push_str(&" ".repeat(width - status.len()));
+            status.push_str(&" ".repeat(width.saturating_sub(len)));
         }
 
         status = format!("{}{}", status, line_indicator);
