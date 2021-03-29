@@ -25,10 +25,15 @@ const STATUS_BG_COLOR: color::Rgb = color::Rgb(239, 239, 239);
 const STATUS_FG_COLOR: color::Rgb = color::Rgb(63, 63, 63);
 const QUIT_TIMES: u8 = 3;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Position {
     pub x: usize,
     pub y: usize,
+}
+
+pub enum SearchDirection {
+    Forward,
+    Backward,
 }
 
 struct StatusMsg {
@@ -85,7 +90,8 @@ impl Editor {
     fn default() -> Self
     {
         let args: Vec<String> = env::args().collect();
-        let mut initial_status = String::from("[!] HELP: Ctrl-Q -- quit | Ctrl-S -- save |")
+        let mut initial_status = String::from(
+            "[!] HELP: Ctrl-Q -- quit | Ctrl-S -- save | Ctrl-F -- find");
         let document = if let Some(file_name) = args.get(1) {
             let doc = Document::open(file_name);
 
@@ -156,6 +162,7 @@ impl Editor {
                 self.document.insert(&self.cur_pos, c);
                 self.move_cursor(Key::Right);
             },
+            Key::Ctrl('f') => self.search(),
             Key::Up |
             Key::Down |
             Key::Left |
@@ -185,15 +192,17 @@ impl Editor {
         return Ok(())
     }
 
-    fn prompt(&mut self, prompt: &str) -> Result<Option<String>, std::io::Error>
+    fn prompt(&mut self, prompt: &str, mut callback: C) -> Result<Option<String>, std::io::Error>
+    where C: FnMut(&mut Self, Key, &String),
     {
         let mut result = String::new();
 
         loop {
             self.status_msg = StatusMsg::from(format!("{}{}", prompt, result));
             self.refresh_screen()?;
+            let key = Terminal::read_key();
 
-            match Terminal::read_key()? {
+            match key {
                 Key::Backspace => result.truncate(result.len().saturating_sub(1)),
                 Key::Char('\n') => break,
                 Key::Char(c) => {
@@ -207,6 +216,8 @@ impl Editor {
                 },
                 _ => (),
             }
+
+            callback(self, key, &result);
         }
 
         self.status_msg = StatusMsg::from(String::new());
@@ -265,9 +276,9 @@ impl Editor {
         let Position{mut y, mut x} = self.cur_pos;
         let height = self.document.len();
         let mut width = if let Some(row) = self.document.row(y) {
-            row.len()
+            return row.len()
         } else {
-            0
+            return 0
         };
 
         match key {
@@ -408,7 +419,13 @@ impl Editor {
 
     fn save(&mut self) {
         if self.document.file_name.is_none() {
+            let new_name = self.prompt("[!] ATTENTION: Save as: ", |_, _, _| {}).unwrap_or(None);
             self.document.file_name = Some(self.prompt("[!] ATTENTION: Save as:")?);
+
+            if new_name.is_none() {
+                self.status_msg = StatusMsg::from("[!] ERROR: Save aborted...".to_string());
+                return;
+            }
         }
         
         if self.document.save().is_ok() {
@@ -417,6 +434,39 @@ impl Editor {
         } else {
             self.status_msg = StatusMsg::from("[!] ERROR: Error writing to file!"
                 .to_string());
+        }
+    }
+
+    fn search(&mut self)
+    {
+        let old_pos = self.cur_pos.clone();
+        let mut direction = SearchDirection::Forward;
+
+        if let query = self.prompt("[!] SEARCH (ESC to quit, Arrows to navigate): ", |ed, key, query| {
+            let mut moved = false;
+
+            match key {
+                Key::Right | Key::Down => {
+                    direction = SearchDirection::Forward;
+                    ed.move_cursor(Key::Right);
+                    moved = true;
+                },
+                Key::Left | Key::Up => direction = SearchDirection::Backward,
+                _ => direction = SearchDirection::Forward,
+            }
+            if let Some(position) = ed.document.find(&query, &ed.cur_pos, direction) {
+                ed.cur_pos = position;
+                ed.scroll();
+            } else if moved {
+                ed.move_cursor(Key::Left);
+            }
+        },)
+        .unwrap_or(None);
+
+
+        if query.is_none() {
+            self.cur_pos = old_pos;
+            self.scroll();
         }
     }
 }

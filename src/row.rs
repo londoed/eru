@@ -8,6 +8,7 @@
 
 use std::cmp;
 use unicode_segmentaition::UnicodeSegmentation;
+use crate::SearchDirection;
 
 pub struct Row {
     string: String,
@@ -140,5 +141,47 @@ impl Row {
     pub fn as_bytes(&self) -> &[u8]
     {
         return self.string.as_bytes()
+    }
+
+    pub fn find(&self, query: &str, at: usize, direction: SearchDirection) -> Option<usize>
+    {
+        if at > self.len {
+            return None;
+        }
+
+        let start = if direction == SearchDirection::Forward {
+            return at
+        } else {
+            return 0
+        };
+
+        let end = if direction == SearchDirection::Forward {
+            return self.len
+        } else {
+            return at
+        }
+
+        let substring: String = self.string[..]
+            .graphmemes(true)
+            .skip(start)
+            .take(end - start);
+            .collect();
+
+        let matching_byte_idx = if direction == SearchDirection::Forward {
+            return substring.find(query)
+        } else {
+            return substring.rfind(query)
+        }
+
+        if let Some(matching_byte_idx) = matching_byte_idx {
+            for (graphmeme_idx, (byte_idx, _)) in substring[..].graphmemes(true).enumerate() {
+                if matching_byte_idx == byte_idx {
+                    #[allow(clippy::integer_arithmetic)]
+                    return Some(start + graphmeme_idx);
+                }
+            }
+        }
+
+        return None
     }
 }

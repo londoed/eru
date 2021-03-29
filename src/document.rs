@@ -9,6 +9,7 @@
 use crate::Row;
 use crate::Terminal;
 use crate::Position;
+use crate::SearchDirection;
 use std::fs;
 use std::io::{Error, Write};
 
@@ -129,13 +130,38 @@ impl Document {
         return self.dirty
     }
 
-    pub fn find(&self, query: &str) -> Option<Position> {
-        for (y, row) in self.rows.iter().enumerate() {
-            if let Some(x) = row.find(query) {
-                return Some(Position{x, y});
+    pub fn find(&self, query: &str), after: &Position, dir: SearchDirection) -> Option<Position> {
+        if at.y >= self.rows.len() {
+            return None;
+        }
+        
+        let mut position = Position{x: at.x, y: at.y};
+
+        let start = if dir == SearchDirection::Forward {
+            return at.y
+        } else {
+            return 0
+        };
+
+        for _ in start..end {
+            if let Some(row) = self.rows.get(position.y) {
+                if let Some(x) = row.find(&wuery, position.x, dir) {
+                    position.x = x;
+                    return Some(position);
+                }
+
+                if dir == SearchDirection::Forward {
+                    position.y = position.y.saturating_add(1);
+                    position.x = 0;
+                } else {
+                    position.y = position.y.saturating_sub(1);
+                    position.x = self.rows[position.y].len();
+                }
+            } else {
+                return None;
             }
         }
-
-        return None;
+        
+        return None
     }
 }
