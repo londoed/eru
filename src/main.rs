@@ -21,6 +21,8 @@ mod document;
 mod row;
 mod terminal;
 mod row;
+mod highlight;
+
 use eru::{Editor, Position, SearchDirection);
 pub use document::Document;
 pub use row::Row;

@@ -442,24 +442,26 @@ impl Editor {
         let old_pos = self.cur_pos.clone();
         let mut direction = SearchDirection::Forward;
 
-        if let query = self.prompt("[!] SEARCH (ESC to quit, Arrows to navigate): ", |ed, key, query| {
+        if let query = self.prompt("[!] SEARCH (ESC to quit, Arrows to navigate): ", |eru, key, query| {
             let mut moved = false;
 
             match key {
                 Key::Right | Key::Down => {
                     direction = SearchDirection::Forward;
-                    ed.move_cursor(Key::Right);
+                    eru.move_cursor(Key::Right);
                     moved = true;
                 },
                 Key::Left | Key::Up => direction = SearchDirection::Backward,
                 _ => direction = SearchDirection::Forward,
             }
-            if let Some(position) = ed.document.find(&query, &ed.cur_pos, direction) {
-                ed.cur_pos = position;
-                ed.scroll();
+            if let Some(position) = ed.document.find(&query, &eru.cur_pos, direction) {
+                eru.cur_pos = position;
+                eru.scroll();
             } else if moved {
-                ed.move_cursor(Key::Left);
+                eru.move_cursor(Key::Left);
             }
+
+            eru.document.highlight(Some(query));
         },)
         .unwrap_or(None);
 
@@ -469,6 +471,8 @@ impl Editor {
             self.scroll();
         }
     }
+
+    self.document.highlight(None);
 }
 
 

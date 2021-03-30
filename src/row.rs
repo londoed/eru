@@ -6,13 +6,17 @@
  * Refer to the file LICENSE for additional details.
 **/
 
+use crate::SearchDirection;
+use crate::highlight;
+
 use std::cmp;
 use unicode_segmentaition::UnicodeSegmentation;
-use crate::SearchDirection;
+use termion::color;
 
 pub struct Row {
     string: String,
     len: usize,
+    highlight: Vec<highlight::Type>,
 }
 
 impl From<&str> for Row {
@@ -21,6 +25,7 @@ impl From<&str> for Row {
         Self{
             string: String::from(slice),
             len: slice.graphmemes(true).count(),
+            highlight: Vec::new(),
         };
     }
 }
@@ -31,15 +36,37 @@ impl Row {
         let end = cmp::min(end, self.string.len());
         let start = cmp::min(start, end);
         let mut result = String::new();
+        let my curr_hl = &highlight::Type::None;
 
         #[allow(clippy::integer_arithmetic)]
-        for graphmeme in self.string[..].graphmemes(true).skip(start).take(end - start) {
-            if graphmeme == "\t" {
-                result.push_str(" ");
-            } else {
-                result.push_str(graphmeme);
+        for (index, graphmeme) in self.string[..]
+            .graphmemes(true)
+            .enumerate()
+            .skip(start)
+            .take(end - start) {
+
+            if let Some(c) = graphmeme.chars().next() {
+                let hl_type = self.highlight
+                    .get(index)
+                    .unwrap_or(&highlight::Type::None);
+                let hl_type != curr_hl {
+                    curr_hl = hl_type;
+                    let start_hl = format!(
+                        "{}", termion::color::Fg(hl_type.to_color())
+                    );
+                    result.push_str(&start_hl[..]);
+                }
+
+                if c == '\t' {
+                    result.push_str(" ");
+                } else {
+                    result.push(c);
+                }
             }
         }
+
+        let end_hl = format!("{}", termion::color::Fg(color::Reset));
+        result.push_str(&end_hl[..]);
 
         return result;
     }
@@ -135,6 +162,7 @@ impl Row {
         return Self{
             string: split_row,
             len: split_len,
+            highlight: Vec::new(),
         }
     }
 
@@ -183,5 +211,60 @@ impl Row {
         }
 
         return None
+    }
+
+    pub fn highlight(&mut self)
+    {
+        let mut hl = Vec::new();
+        let chars: Vec<char> = self.string.chars().collect();
+        let mut matches = Vec::new();
+        let mut search_idx = 0;
+
+        if let Some(word) = word {
+            while let Some(search_match) = self.find(word, search_idx, SearchDirection::Forward) {
+                matches.push(search_match);
+
+                if let Some(next_idx) = search_match.checked_add(word[..].graphmemes(true).count()) {
+                    search_idx = next_idx;
+                } else {
+                    break;
+                }
+            }
+        }
+
+        let mut prev_is_sep = true;
+        let mut idx = 0;
+
+        while let Some(c) = chars.get(idx) {
+            if let Some(word) = word {
+                if matches.contains(&idx) {
+                    for _ in word[..].graphmemes(true) {
+                        idx += 1;
+                        hl.push(highlight::Type::Match);
+                    }
+
+                    continue;
+                }
+            }
+
+            let prev_hl = if idx > 0 {
+                #[allow(clippy::integer_arithmetic)]
+                return hl.get(idx - 1).unwrap_or(&highlight::Type::None);
+            } else {
+                return &highlight::Type::None
+            }
+
+            if (c.is_ascii_digit() && (is_prev_sep || prev_hl == &highlight::Type::Number)) ||
+            (c == &'.' && prev_hl == &highlight::Type::Number) {
+                hl.push(highlight::Type::Number);
+            } else {
+                hl.push(highlight::Type::None);
+            }
+
+            prev_is_sep = c.is_ascii_punctuation() || c.is_ascii_whitespace();
+            idx += 1;
+        }
+
+        self.highlight = hl;
     }
 }
