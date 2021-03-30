@@ -102,10 +102,131 @@ main(int argc, char *argv)
     return 0;
 }
 
-int eru_editor_init(struct Editor *ed);
+int 
+eru_editor_init(struct Editor *eru);
 {
     int ky, pos = 0;
     int row, col;
     int scroll_start = 0, x = 0, y = 0;
     char *where, *original, *save_text, **display, *last_undo;
+    bool exitf;
+
+    if (!eru.max_chars)
+        eru.max_chars = eru.max_rows * eru.max_cols + 1;
+
+    if (!eru.max_rows || eru.max_rows > eru.max_chars - 1)
+        eru.max_rows = eru.max_chars - 1;
+
+    if (eru.ins)
+        curs_set(2);
+    else
+        curs_set(1);
+
+    if ((display = malloc(eru.max_rows * sizeof(char *))) == NULL)
+        malloc_error();
+
+    for (ky = 0; ky < eru.max_rows; ky++) {
+        if ((display[ky] = malloc((eru.max_cols + 1) * sizeof(char))) == NULL)
+            malloc_error();
+    }
+
+    if ((original = malloc(eru.max_chars * sizeof(char))) == NULL)
+        malloc_error();
+
+    strcpy(original, eru->text);
+
+    if ((save_text = malloc(eru.max_chars * sizeof(char))) == NULL)
+        malloc_error();
+
+    strcpy(save_text, eru->text);
+    
+    do {
+        int counter;
+
+        while (!exitf) {
+            counter = 0;
+            where = eru->text;
+
+            for (row = 0; row < eru.max_rows; row++) {
+                display[row][0] = 127;
+                display[row][1] = '\0';
+            }
+
+            row = 0;
+
+            while ((strlen(where) > eru.max_cols || strchr(where, '\n') != NULL) &&
+                (display[eru.max_rows - 1][0] == 127 || display[eru.max_rows - 1][0] == '\n')) {
+            
+                strncpy(display[row], where, eru.max_cols);
+                display[row][eru.max_cols] = '\0';
+
+                if (strchr(display[row], '\n') != NULL)
+                    set_str_length(display[row], strchr(display[row], '\n') - display[row]);
+                else
+                    set_str_length(display[row], strrchr(display[row], ' ') - display[row]);
+
+                if (display[eru.max_rows - 1][0] == 127 || display[eru.max_rows - 1][0] == '\n') {
+                    where += strlen(display[row]);
+
+                    if (where[0] == '\n' || where[0] == ' ' || where[0] == '\0')
+                        where++;
+
+                    row++;
+                }
+            }
+
+            if (row == eru.max_rows - 1 && strlen(where) > eru.max_cols) {
+                strcpy(eru->text, save_text);
+
+                if (ky == 127)
+                    position++;
+
+                counter = 1;
+            }
+        }
+    } while (counter);
+
+    strcpy(display[row], where);
+    ky = 0;
+
+    if (strchr(display[eru.max_rows - 1], '\n') != NULL) {
+        if (strchr(display[eru.max_rows - 1], '\n')[1] != '\0')
+            ky = 127;
+    }
+
+    col = position;
+    row = 0;
+    counter = 0;
+
+    while (col > strlen(display[row])) {
+        col -= strlen(display[row]);
+        counter += strlen(display[row]);
+
+        if (eru->text[counter] == ' ' || eru->text[counter] == '\n' || eru->text[counter] == '\0') {
+            col--;
+            counter++;
+        }
+
+        row++;
+    }
+
+    if (col > eru.max_cols - 1) {
+        row++;
+        col = 0;
+    }
+
+    if (!ky) {
+        if (row < scroll_start)
+            scroll_start--;
+
+        if (row > scroll_start + eru.display_rows - 1)
+            scroll_start++;
+
+        for (counter = 0; counter < eru.display_rows; counter++) {
+            mvhline(counter + eru.start_row, eru.start_col, ' ', eru.max_cols);
+
+            if (display[counter + scroll_start][0] != 127)
+                mvprintw(counter + eru.start_row, eru.start_col, "%s", display[counter + scroll_start]);
+        }
+    }
 }

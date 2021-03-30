@@ -46,7 +46,7 @@ struct Editor {
 static Position *pos;
 bool search_marks = false;
 
-char *eru_set_str_length(char *str, const int len);
+char *set_str_length(char *str, const int len);
 void malloc_error(void);
 int eru_editor_init(Editor ed);
 void remove_search_marks(char *text);
